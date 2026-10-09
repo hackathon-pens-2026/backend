@@ -272,35 +272,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
                 .Any(t => evidences.Count(e => e.TaskId == t.Id && e.ActorId == t.ActedByUserId
                     && string.Equals(e.ContentHash, revision.ContentHash, StringComparison.OrdinalIgnoreCase)) != 1))
                 throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_invalid", "Evidence semua tugas tanda tangan wajib tersedia dan sesuai revisi.");
-            var overlays = new List<PdfSignatureOverlayItem>();
-            foreach (var participant in participants)
-            {
-                var task = await _db.WorkflowTasks.SingleOrDefaultAsync(
-                    x => x.RevisionId == revision.Id && x.ParticipantId == participant.Id, ct);
-                var evidence = task == null ? null : evidences.SingleOrDefault(x => x.TaskId == task.Id);
-                if (evidence == null)
-                    throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_missing",
-                        "Bukti tanda tangan peserta belum lengkap.");
-                if (!string.Equals(evidence.ContentHash, revision.ContentHash, StringComparison.OrdinalIgnoreCase)
-                    || task!.ActedByUserId != evidence.ActorId)
-                    throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_invalid", "Evidence tidak sesuai isi atau actor tugas.");
-                var qr = await _db.SignatureQrs.SingleOrDefaultAsync(x => x.Id == evidence.QrAssetId, ct);
-                var qrBytes = qr == null ? null : await _storage.ReadBytesAsync(qr.PrivateStorageKey, ct);
-                if (qr == null || qr.OwnerUserId != evidence.ActorId || qr.Version != evidence.QrVersion
-                    || !string.Equals(qr.ImageSha256, evidence.QrHash, StringComparison.OrdinalIgnoreCase)
-                    || qrBytes == null || !string.Equals(_qrGenerator.ComputeSha256(qrBytes), evidence.QrHash, StringComparison.OrdinalIgnoreCase))
-                    throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_asset_invalid",
-                        "Snapshot aset tanda tangan tidak tersedia atau telah berubah.");
-                var signerName = participant.DisplayNameSnapshot;
-                if (evidence.DelegatedFromUserId.HasValue)
-                {
-                    var actor = await _db.Users.AsNoTracking().SingleAsync(x => x.Id == evidence.ActorId, ct);
-                    signerName = $"{actor.Name} ({evidence.MandateDescription})";
-                }
-                overlays.Add(new PdfSignatureOverlayItem(participant.PageIndex, participant.X, participant.Y,
-                    participant.Width, participant.Height, participant.Rotation, qrBytes,
-                    signerName, evidence.PositionSnapshot, evidence.SignedAt, true));
-            }
+            var signatureDocuments = new SignatureDocumentService(_db, _storage, _qrGenerator, _pdfOverlay);
+            var overlays = await signatureDocuments.BuildOverlaysAsync(revision, true, ct);
 
             var verificationCode = $"SIG-{Convert.ToHexString(RandomNumberGenerator.GetBytes(4))}-{Convert.ToHexString(RandomNumberGenerator.GetBytes(4))}";
             var finalPdf = await _pdfOverlay.OverlaySignaturesAsync(basePdfBytes, overlays, verificationCode, ct);

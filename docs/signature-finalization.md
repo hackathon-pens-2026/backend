@@ -5,7 +5,21 @@ kemudian menetapkan `Finalizing`. Respons tindakan tetap `IsWorkflowCompleted=fa
 `VerificationCode=null`: approval selesai bukan berarti PDF sudah siap. Frontend harus polling
 status finalisasi, bukan mengulang tanda tangan untuk mendapatkan PDF.
 
-## Endpoint pemilik surat
+## Preview QR bertahap (pemilik dan peserta berizin)
+
+`GET /api/v1/letters/{id}/signed-document` mengembalikan PDF inline, private dan no-store.
+Otorisasi sama dengan detail workflow: pemilik atau peserta/mandat dengan assignment yang masih sah.
+Sebelum semua persetujuan selesai, backend membuat salinan review dengan overlay hanya untuk
+task Signed/Approved yang memiliki evidence pada revisi terkini. Tidak menulis ulang review,
+hash isi, slot, status workflow atau evidence. Slot yang belum selesai tetap berupa placeholder.
+Sesudah final tersedia, endpoint mengembalikan bytes final tersimpan tanpa overlay ulang.
+
+Evidence divalidasi terhadap actor, hash isi, waktu tindakan dan snapshot aset QR (owner/versi/hash).
+QR rusak atau evidence yang tidak cocok menyebabkan kegagalan, bukan signature palsu.
+Revisi baru tidak memakai evidence revisi terdahulu. Frontend memuat ulang PDF setelah tindakan
+berhasil, melalui panel surat di Kotak Persetujuan dan Detail & Pelacakan Surat.
+
+## Finalisasi pemilik surat
 
 - `GET /api/v1/letters/{id}/finalization`: LetterId, RevisionId, Version, Status,
   VerificationCode dan DownloadUrl (hanya setelah Completed).
