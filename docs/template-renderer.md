@@ -7,9 +7,12 @@ oleh Microsoft Word/LibreOffice. PDF native memakai PDFsharp 6.2.4 yang sudah ad
 
 Layout mempertahankan isi surat peminjaman, tabel dua baris barang, cover/isi/lampiran proposal dan LPJ,
 serta lembar pengesahan. Tata letak PDF ditata ulang secara terkontrol dalam A4, bukan salinan piksel
-Word. Contoh identitas pribadi, rekening, NIK, evaluasi, anggaran, jadwal dan dokumentasi lama dari
-DOCX LPJ tidak disalin ke hasil. Kop menggunakan organisasi yang dipilih dan PENS, tanpa mengklaim
-logo/alamat kontak organisasi lain. Lampiran berupa teks schema; unggahan foto/bukti pembayaran dan
+Word. Kop memakai letterhead resmi PENS mengikuti DOCX sumber: logo dari
+`templates/assets/kop-pens-logo.png` plus teks kementerian, identitas kampus, dan alamat/kontak
+(teks dicetak oleh renderer, gambar hanya dibaca dari aset server tepercaya). Teks PDF memakai font
+Times New Roman (fallback Linux: Liberation Serif/DejaVu Serif/FreeSerif). Contoh identitas pribadi,
+rekening, NIK, evaluasi, anggaran, jadwal dan dokumentasi lama dari DOCX LPJ tidak disalin ke hasil,
+dan layout tidak mengklaim logo/alamat organisasi lain. Lampiran berupa teks schema; unggahan foto/bukti pembayaran dan
 lampiran PDF gabungan belum termasuk renderer ini.
 
 ## Nilai dari server

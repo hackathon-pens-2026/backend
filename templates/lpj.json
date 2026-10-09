@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "template_id": "TEMPLATE-LPJ-01",
+  "name": "Lembar Pertanggungjawaban (LPJ) Kegiatan",
+  "category": "LPJ",
+  "version": "1.0.0",
+  "description": "Template resmi laporan pertanggungjawaban (LPJ) kegiatan organisasi mahasiswa Politeknik Elektronika Negeri Surabaya (PENS) lengkap dengan Lembar Pengesahan tanda tangan elektronik (QR Code) dan susunan panitia.",
+  "source_document": "Template - LPJ.docx",
+  "placeholder_format": "mustache",
+  "fields": [
+    {
+      "key": "nama_kegiatan",
+      "label": "Nama Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "INTENSIF AN-NAHL 1",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "tahun_kegiatan",
+      "label": "Tahun Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "2025",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "nama_divisi_pelaksana",
+      "label": "Divisi Pelaksana",
+      "type": "string",
+      "required": true,
+      "default_value": "Pengembangan Sumber Daya Manusia",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "nama_ormawa",
+      "label": "Nama Ormawa",
+      "type": "string",
+      "required": true,
+      "default_value": "UNIT KEGIATAN KEROHANIAN ISLAM",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "nama_kampus",
+      "label": "Nama Kampus",
+      "type": "string",
+      "required": true,
+      "default_value": "POLITEKNIK ELEKTRONIKA NEGERI SURABAYA",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "tema_kegiatan",
+      "label": "Tema Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "TSABATUL QALB, yang memiliki arti: Keteguhan hati.",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "tagline_kegiatan",
+      "label": "Tagline Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Menguatkan Hati, Meneguhkan Iman.",
+      "group": "identitas_kegiatan"
+    },
+    {
+      "key": "hari_kegiatan",
+      "label": "Hari Pelaksanaan",
+      "type": "string",
+      "required": true,
+      "default_value": "Sabtu - Minggu",
+      "group": "pelaksanaan"
+    },
+    {
+      "key": "tanggal_kegiatan",
+      "label": "Tanggal Pelaksanaan",
+      "type": "string",
+      "required": true,
+      "default_value": "29 - 30 November 2025",
+      "group": "pelaksanaan"
+    },
+    {
+      "key": "waktu_kegiatan",
+      "label": "Waktu Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "08.00 s/d Selesai",
+      "group": "pelaksanaan"
+    },
+    {
+      "key": "tempat_kegiatan",
+      "label": "Tempat Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Villa Puncak Trawas, Mojokerto",
+      "group": "pelaksanaan"
+    },
+    {
+      "key": "kota_surat",
+      "label": "Kota Pengesahan",
+      "type": "string",
+      "required": true,
+      "default_value": "Surabaya",
+      "group": "pengesahan"
+    },
+    {
+      "key": "tanggal_pengesahan",
+      "label": "Tanggal Pengesahan",
+      "type": "string",
+      "required": true,
+      "default_value": "2 Desember 2025",
+      "group": "pengesahan"
+    },
+    {
+      "key": "jabatan_pemohon_1",
+      "label": "Jabatan Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Umum UKKI PENS",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_1",
+      "label": "Nama Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Muhammad Labib Al Zuhry",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_1",
+      "label": "NRP Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "3223600049",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_1",
+      "label": "QR Tanda Tangan Pemohon 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 1]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_pemohon_2",
+      "label": "Jabatan Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Pelaksana",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_2",
+      "label": "Nama Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Muhammad Fajrul Fatih A. I.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_2",
+      "label": "NRP Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "3124600040",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_2",
+      "label": "QR Tanda Tangan Pemohon 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 2]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_1",
+      "label": "Jabatan Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_1",
+      "label": "Nama Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_1",
+      "label": "NIP Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "199208262 02203 1007",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_1",
+      "label": "QR Tanda Tangan Mengetahui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 1]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_2",
+      "label": "Jabatan Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Pembina UKKI PENS",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_2",
+      "label": "Nama Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Adnan Rachmat Anom Besari, S.ST, M.Sc, Ph.D.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_2",
+      "label": "NIP Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "198509102 01212 1003",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_2",
+      "label": "QR Tanda Tangan Mengetahui 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 2]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_menyetujui_1",
+      "label": "Jabatan Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Wakil Direktur III",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "unit_menyetujui_1",
+      "label": "Unit Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Bidang Kemahasiswaan dan Alumni PENS",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_menyetujui_1",
+      "label": "Nama Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Kholid Fathoni, S.Kom, M.T.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_menyetujui_1",
+      "label": "NIP Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "198012262 00812 1003",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_menyetujui_1",
+      "label": "QR Tanda Tangan Menyetujui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Menyetujui 1]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_penasehat",
+      "label": "Nama Penasehat (Wadir Kemahasiswaan)",
+      "type": "string",
+      "required": true,
+      "default_value": "Kholid Fathoni, S.Kom., M.T.",
+      "group": "susunan_panitia"
+    },
+    {
+      "key": "nama_pembina_ormawa",
+      "label": "Pembina Ormawa",
+      "type": "string",
+      "required": true,
+      "default_value": "Adnan Rachmat Anom Besari, S.ST, M.Sc, Ph.D",
+      "group": "susunan_panitia"
+    },
+    {
+      "key": "nama_penanggung_jawab",
+      "label": "Nama Penanggung Jawab",
+      "type": "string",
+      "required": true,
+      "default_value": "Muhammad Labib Al Zuhry",
+      "group": "susunan_panitia"
+    },
+    {
+      "key": "nama_ketua_pelaksana",
+      "label": "Nama Ketua Pelaksana",
+      "type": "string",
+      "required": true,
+      "default_value": "Muhammad Fajrul Fatih Abul ‘Ilmi",
+      "group": "susunan_panitia"
+    },
+    {
+      "key": "nama_sekretaris",
+      "label": "Nama Sekretaris",
+      "type": "string",
+      "required": true,
+      "default_value": "Ahmad Farhan",
+      "group": "susunan_panitia"
+    },
+    {
+      "key": "nama_bendahara",
+      "label": "Nama Bendahara",
+      "type": "string",
+      "required": true,
+      "default_value": "Siti Nurhaliza",
+      "group": "susunan_panitia"
+    }
+  ],
+  "sample_payload": {
+    "nama_kegiatan": "INTENSIF AN-NAHL 1",
+    "tahun_kegiatan": "2025",
+    "nama_divisi_pelaksana": "Pengembangan Sumber Daya Manusia",
+    "nama_ormawa": "UNIT KEGIATAN KEROHANIAN ISLAM",
+    "nama_kampus": "POLITEKNIK ELEKTRONIKA NEGERI SURABAYA",
+    "tema_kegiatan": "TSABATUL QALB, yang memiliki arti: Keteguhan hati.",
+    "tagline_kegiatan": "Menguatkan Hati, Meneguhkan Iman.",
+    "hari_kegiatan": "Sabtu - Minggu",
+    "tanggal_kegiatan": "29 - 30 November 2025",
+    "waktu_kegiatan": "08.00 s/d Selesai",
+    "tempat_kegiatan": "Villa Puncak Trawas, Mojokerto",
+    "kota_surat": "Surabaya",
+    "tanggal_pengesahan": "2 Desember 2025",
+    "jabatan_pemohon_1": "Ketua Umum UKKI PENS",
+    "nama_pemohon_1": "Muhammad Labib Al Zuhry",
+    "nrp_pemohon_1": "3223600049",
+    "qr_pemohon_1": "[QR Code Tanda Tangan Pemohon 1]",
+    "jabatan_pemohon_2": "Ketua Pelaksana",
+    "nama_pemohon_2": "Muhammad Fajrul Fatih A. I.",
+    "nrp_pemohon_2": "3124600040",
+    "qr_pemohon_2": "[QR Code Tanda Tangan Pemohon 2]",
+    "jabatan_mengetahui_1": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+    "nama_mengetahui_1": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+    "nip_mengetahui_1": "199208262 02203 1007",
+    "qr_mengetahui_1": "[QR Code Tanda Tangan Mengetahui 1]",
+    "jabatan_mengetahui_2": "Pembina UKKI PENS",
+    "nama_mengetahui_2": "Adnan Rachmat Anom Besari, S.ST, M.Sc, Ph.D.",
+    "nip_mengetahui_2": "198509102 01212 1003",
+    "qr_mengetahui_2": "[QR Code Tanda Tangan Mengetahui 2]",
+    "jabatan_menyetujui_1": "Wakil Direktur III",
+    "unit_menyetujui_1": "Bidang Kemahasiswaan dan Alumni PENS",
+    "nama_menyetujui_1": "Kholid Fathoni, S.Kom, M.T.",
+    "nip_menyetujui_1": "198012262 00812 1003",
+    "qr_menyetujui_1": "[QR Code Tanda Tangan Menyetujui 1]",
+    "nama_penasehat": "Kholid Fathoni, S.Kom., M.T.",
+    "nama_pembina_ormawa": "Adnan Rachmat Anom Besari, S.ST, M.Sc, Ph.D",
+    "nama_penanggung_jawab": "Muhammad Labib Al Zuhry",
+    "nama_ketua_pelaksana": "Muhammad Fajrul Fatih Abul ‘Ilmi",
+    "nama_sekretaris": "Ahmad Farhan",
+    "nama_bendahara": "Siti Nurhaliza"
+  }
+}

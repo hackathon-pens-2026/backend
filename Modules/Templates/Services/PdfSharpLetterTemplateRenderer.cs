@@ -12,6 +12,14 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
 {
     public const string Version = "signit-pdfsharp-v1";
     private static readonly Regex Placeholder = new(@"\{\{([a-z0-9_]+)\}\}", RegexOptions.CultureInvariant);
+    private static readonly XColor HeaderNavy = XColor.FromArgb(0x31, 0x4F, 0x7D);
+    private static readonly XColor HeaderDark = XColor.FromArgb(0x36, 0x33, 0x34);
+    private readonly Lazy<XImage?> headerLogo;
+
+    public PdfSharpLetterTemplateRenderer(IHostEnvironment? environment = null)
+    {
+        headerLogo = new Lazy<XImage?>(() => LoadHeaderLogo(environment), LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
     public RenderedPreview Render(PreviewRenderInput input, CancellationToken ct)
         => RenderInternal(input, false, ct);
@@ -30,7 +38,7 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
         if (input.Participants.Length is < 5 or > 7 || input.Participants.Select(x => x.Stage.PositionCode).Distinct().Count() != input.Participants.Length)
             throw new InvalidOperationException("Peserta routing tidak valid.");
         SignItFontResolver.EnsureRegistered();
-        using var canvas = new LayoutCanvas(input, final, ct);
+        using var canvas = new LayoutCanvas(input, final, ct, headerLogo.Value);
         if (input.Layout.CoverTitle is { } cover)
         {
             canvas.Space(130);
@@ -64,21 +72,52 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
             ? value : throw new InvalidOperationException($"Field layout {match.Groups[1].Value} belum dipetakan."));
     }
 
+    private static XImage? LoadHeaderLogo(IHostEnvironment? environment)
+    {
+        foreach (var candidate in HeaderLogoCandidates(environment))
+        {
+            if (!File.Exists(candidate)) continue;
+            try
+            {
+                return XImage.FromFile(candidate);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static IEnumerable<string> HeaderLogoCandidates(IHostEnvironment? environment)
+    {
+        if (environment is not null)
+        {
+            yield return Path.Combine(environment.ContentRootPath, "templates", "assets", "kop-pens-logo.png");
+            yield return Path.Combine(environment.ContentRootPath, "..", "templates", "assets", "kop-pens-logo.png");
+        }
+        yield return Path.Combine(Directory.GetCurrentDirectory(), "templates", "assets", "kop-pens-logo.png");
+        yield return Path.Combine(AppContext.BaseDirectory, "templates", "assets", "kop-pens-logo.png");
+    }
+
     private sealed class LayoutCanvas : IDisposable
     {
         private const double Margin = 48, Bottom = 780, Width = 499;
+        private const double HeaderDividerY = 112;
         private readonly PreviewRenderInput input;
         private readonly CancellationToken ct;
         private readonly bool final;
+        private readonly XImage? headerLogo;
         private readonly PdfDocument pdf = new();
         private XGraphics graphics = null!;
         private double y;
 
-        public LayoutCanvas(PreviewRenderInput input, bool final, CancellationToken ct)
+        public LayoutCanvas(PreviewRenderInput input, bool final, CancellationToken ct, XImage? headerLogo)
         {
             this.input = input;
             this.ct = ct;
             this.final = final;
+            this.headerLogo = headerLogo;
             pdf.Info.Title = input.Title;
             pdf.Info.Author = "SignIt";
             pdf.Info.Subject = input.TemplateVersionId;
@@ -95,20 +134,36 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
             var page = pdf.AddPage();
             page.Size = PdfSharp.PageSize.A4;
             graphics = XGraphics.FromPdfPage(page);
-            y = 42;
-            Paragraph(input.Fields.GetValueOrDefault("nama_ormawa", ""), 11, true, "center");
-            Paragraph("POLITEKNIK ELEKTRONIKA NEGERI SURABAYA", 11, true, "center");
-            graphics.DrawLine(XPens.Black, Margin, y, Margin + Width, y);
-            y += 22;
+            DrawHeader();
             graphics.DrawString(final ? "Dokumen final - tanda tangan elektronik tercatat di SignIt" : "DRAFT - Belum diajukan / belum ditandatangani", Font(8), XBrushes.Gray,
                 new XRect(Margin, 802, Width, 12), XStringFormats.TopLeft);
             graphics.DrawString($"{pdf.PageCount}", Font(8), XBrushes.Gray,
                 new XRect(Margin, 802, Width, 12), XStringFormats.TopRight);
         }
 
+        // Letterhead resmi PENS mengikuti kop DOCX sumber (logo + teks kementerian/kontak).
+        private void DrawHeader()
+        {
+            if (headerLogo is not null) graphics.DrawImage(headerLogo, 42, 26, 87, 86);
+            var headerY = 30d;
+            void Line(string text, double size, bool bold, XColor color)
+            {
+                graphics.DrawString(text, Font(size, bold), new XSolidBrush(color),
+                    new XRect(Margin, headerY, Width, size * 1.5), XStringFormats.TopCenter);
+                headerY += size * 1.4;
+            }
+            Line("KEMENTERIAN PENDIDIKAN TINGGI, SAINS, DAN TEKNOLOGI", 12, false, HeaderNavy);
+            Line("POLITEKNIK ELEKTRONIKA NEGERI SURABAYA", 12, true, HeaderNavy);
+            Line("Jalan Raya ITS, Sukolilo, Surabaya, 60111", 10, false, HeaderDark);
+            Line("Telepon: +62-31-5947280 (hunting); Fax: +62-31-5946114", 10, false, HeaderDark);
+            Line("Laman: https://www.pens.ac.id; E-mail: info@pens.ac.id", 10, false, HeaderDark);
+            graphics.DrawRectangle(new XSolidBrush(HeaderNavy), 28, HeaderDividerY, 539, 1.2);
+            y = HeaderDividerY + 18;
+        }
+
         public void Space(double points) { Ensure(points); y += points; }
         private void Ensure(double points) { if (y + points > Bottom) NewPage(); }
-        private static XFont Font(double size, bool bold = false) => new("Arial", size, bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+        private static XFont Font(double size, bool bold = false) => new("Times New Roman", size, bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
 
         public void Heading(string text)
         {

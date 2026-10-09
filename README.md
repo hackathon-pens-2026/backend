@@ -159,9 +159,12 @@ Script SQL untuk master data (jalankan via `psql` pada database dev):
 - `provisioning/facilities.sql` — fasilitas (PS/SAW/D3/D4/lapangan) + resource ruangan.
 - `provisioning/auth-schema.sql` — referensi skema auth (dipakai jika perlu seed manual).
 
-**Catatan**: aset template surat (`templates/*.json` + file sumber) belum ada di repo —
-`GET /templates` dan pipeline preview memerlukan aset itu. Letakkan di `backend/templates/`
-(atau `<root>/templates/`) sesuai seed tim.
+**Catatan aset template**: schema `{typeId}.json` dan dokumen sumber `*.docx` disimpan di
+`backend/templates/` (dev juga menerima fallback `<repo-root>/templates/`). Katalog `GET /templates`
+membaca file tersebut. Pipeline pratinjau **juga** memerlukan pasangan `{typeId}.layout.json`
+(schema blok `pageBreak/heading/paragraph/right/table`, lihat `docs/template-renderer.md` dan
+`PdfSharpLetterTemplateRenderer.Version = "signit-pdfsharp-v1"`); selama file layout belum tersedia,
+`POST /letters/{id}/preview` gagal. Pastikan juga versi schema sesuai dengan yang diharapkan renderer.
 
 ---
 

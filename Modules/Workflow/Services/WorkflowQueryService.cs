@@ -12,12 +12,14 @@ namespace SignIt.Modules.Workflow.Services;
 public sealed record WorkflowTaskDto(Guid Id, Guid LetterId, string Title, Guid RevisionId, string ContentHash,
     int Order, WorkflowActionType ActionType, WorkflowTaskStatus Status, Guid AssignedUserId,
     Guid Version, DateTimeOffset? ActivatedAt, DateTimeOffset? DueAt, bool IsOverdue, string? Comment,
-    Guid? ActedByUserId, DateTimeOffset? ActedAt, string[] AllowedActions, string? DocumentUrl);
+    Guid? ActedByUserId, DateTimeOffset? ActedAt, string[] AllowedActions, string? DocumentUrl,
+    string AssignedUserName, string? PositionCode, string? PositionName,
+    string Number, string TypeId, string RequesterName, string OrganizationName);
 public sealed record WorkflowQueueDto(int Page, int PageSize, int Total, WorkflowTaskDto[] Items);
 public sealed record WorkflowTimelineDto(string Action, Guid? Actor, DateTimeOffset At, string? Reason);
 public sealed record DelegateCandidateDto(Guid UserId, string Name, string PositionName, DateTimeOffset? ValidTo);
 public sealed record LetterWorkflowDto(Guid LetterId, string Number, LetterStatus Status, Guid Version,
-    Guid RevisionId, string ContentHash, WorkflowTaskDto[] Tasks, WorkflowTimelineDto[] Timeline);
+    Guid RevisionId, string ContentHash, Guid? FinalDocumentId, WorkflowTaskDto[] Tasks, WorkflowTimelineDto[] Timeline);
 
 public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess access, IStorageService storage, TimeProvider clock)
 {
@@ -102,7 +104,8 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
             && (x.Action.StartsWith("workflow.") || x.Action == "task.activated" || x.Action == "letter.submitted" || x.Action == "letter.cancelled" || x.Action == "letter.edited"))
             .OrderByDescending(x => x.AtUtc).ThenByDescending(x => x.Id).Take(100)
             .Select(x => new WorkflowTimelineDto(x.Action, x.ActorUserId, x.AtUtc, x.Action.StartsWith("workflow.") ? x.Details : null)).ToArrayAsync(ct);
-        return new(letter.Id, letter.Number, letter.Status, letter.RowVersion, revision.Id, revision.ContentHash, items.ToArray(), timeline);
+        return new(letter.Id, letter.Number, letter.Status, letter.RowVersion, revision.Id, revision.ContentHash,
+            revision.FinalDocumentId, items.ToArray(), timeline);
     }
 
     public async Task<byte[]> DownloadAsync(Guid actor, Guid taskId, CancellationToken ct)
@@ -120,6 +123,21 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
     private async Task<WorkflowTaskDto> MapAsync(TaskContext context, Guid actor, bool canAct, CancellationToken ct)
     {
         var task = context.Task;
+        var assignedUserName = await db.Users.AsNoTracking().Where(x => x.Id == task.AssignedUserId)
+            .Select(x => x.Name).SingleOrDefaultAsync(ct) ?? string.Empty;
+        var requesterName = await db.Users.AsNoTracking().Where(x => x.Id == context.Letter.SubmittedByUserId)
+            .Select(x => x.Name).SingleOrDefaultAsync(ct) ?? string.Empty;
+        var organizationName = context.Letter.OrganizationId is Guid organizationId
+            ? await db.Organizations.AsNoTracking().Where(x => x.Id == organizationId)
+                .Select(x => x.Name).SingleOrDefaultAsync(ct) ?? string.Empty
+            : string.Empty;
+        string? positionName = null;
+        if (!string.IsNullOrEmpty(task.DomainCode) && context.Letter.OrganizationId is Guid letterOrganizationId)
+            positionName = await (from assignment in db.Assignments.AsNoTracking()
+                                  join organization in db.Organizations.AsNoTracking() on assignment.Scope equals organization.Scope
+                                  where organization.Id == letterOrganizationId && assignment.UserId == task.AssignedUserId
+                                    && assignment.PositionCode == task.DomainCode && assignment.IsActive
+                                  select assignment.PositionName).FirstOrDefaultAsync(ct);
         var actions = new List<string>();
         var precedingIncomplete = await db.WorkflowTasks.AnyAsync(x => x.RevisionId == task.RevisionId && x.Order < task.Order
             && x.Status != WorkflowTaskStatus.Signed && x.Status != WorkflowTaskStatus.Approved && x.Status != WorkflowTaskStatus.Acknowledged, ct);
@@ -138,6 +156,9 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
         return new(task.Id, context.Letter.Id, context.Letter.Title, task.RevisionId, context.Revision.ContentHash, task.Order,
             task.ActionType, task.Status, task.AssignedUserId, task.RowVersion, task.ActivatedAt, task.DueAt,
             task.Status is WorkflowTaskStatus.Active or WorkflowTaskStatus.Deferred && task.DueAt < clock.GetUtcNow(),
-            task.Comment, task.ActedByUserId, task.ActedAt, actions.ToArray(), context.Revision.ReviewDocumentId.HasValue ? $"/api/v1/tasks/{task.Id}/document" : null);
+            task.Comment, task.ActedByUserId, task.ActedAt, actions.ToArray(),
+            context.Revision.ReviewDocumentId.HasValue ? $"/api/v1/tasks/{task.Id}/document" : null,
+            assignedUserName, task.DomainCode, positionName,
+            context.Letter.Number, context.Letter.TypeId, requesterName, organizationName);
     }
 }

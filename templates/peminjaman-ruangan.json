@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "template_id": "TEMPLATE-PEMINJAMAN-RUANGAN-01",
+  "name": "Surat Permohonan Peminjaman Ruangan",
+  "category": "Peminjaman Ruangan",
+  "version": "1.1.0",
+  "description": "Template resmi surat permohonan peminjaman ruangan dan fasilitas kampus di Politeknik Elektronika Negeri Surabaya (PENS). Dilengkapi slot penandatangan elektronik (QR Code) sesuai standar alur persetujuan SignIt.",
+  "source_document": "Template - Peminjaman Ruangan.docx",
+  "placeholder_format": "mustache",
+  "fields": [
+    {
+      "key": "nomor_surat",
+      "label": "Nomor Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "6.1/INT/PMH/BPM/UKKI-PENS/IX/2026",
+      "description": "Nomor surat resmi sesuai format penomoran organisasi/unit.",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "perihal",
+      "label": "Perihal Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "Permohonan Peminjaman Ruangan",
+      "description": "Perihal surat resmi.",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "lampiran",
+      "label": "Lampiran",
+      "type": "string",
+      "required": true,
+      "default_value": "-",
+      "description": "Keterangan lampiran berkas, misalnya '-' atau '1 Berkas'.",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "kota_surat",
+      "label": "Kota Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "Surabaya",
+      "description": "Kota tempat surat diterbitkan.",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "tanggal_surat",
+      "label": "Tanggal Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "23 September 2026",
+      "description": "Tanggal pembuatan surat dalam format teks resmi (contoh: 23 September 2026).",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "tujuan_surat_baris_1",
+      "label": "Tujuan Surat (Baris 1)",
+      "type": "string",
+      "required": true,
+      "default_value": "Wadir II Perancangan, Keuangan, dan Umum",
+      "description": "Pejabat atau pimpinan penerima surat baris pertama.",
+      "group": "penerima_surat"
+    },
+    {
+      "key": "tujuan_surat_baris_2",
+      "label": "Tujuan Surat (Baris 2)",
+      "type": "string",
+      "required": true,
+      "default_value": "Kepala Bagian Akademik dan Kemahasiswaan Politeknik Elektronika Negeri Surabaya",
+      "description": "Pejabat atau bagian penerima surat baris kedua.",
+      "group": "penerima_surat"
+    },
+    {
+      "key": "jenis_permohonan",
+      "label": "Jenis Permohonan",
+      "type": "string",
+      "required": true,
+      "default_value": "peminjaman ruangan",
+      "description": "Jenis permohonan yang diajukan dalam paragraf pembuka.",
+      "group": "pengantar_surat"
+    },
+    {
+      "key": "keperluan_tujuan",
+      "label": "Keperluan atau Tujuan",
+      "type": "string",
+      "required": true,
+      "default_value": "kegiatan Sekolah Mentor 2 UKKI PENS",
+      "description": "Keperluan atau tujuan pelaksanaan permohonan.",
+      "group": "pengantar_surat"
+    },
+    {
+      "key": "nama_kegiatan",
+      "label": "Nama Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Sekolah Mentor 2",
+      "description": "Nama kegiatan atau acara yang akan diselenggarakan.",
+      "group": "detail_peminjaman"
+    },
+    {
+      "key": "hari_tanggal_kegiatan",
+      "label": "Hari & Tanggal Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Jum'at, 25 September 2026",
+      "description": "Hari dan tanggal pelaksanaan kegiatan peminjaman ruangan.",
+      "group": "detail_peminjaman"
+    },
+    {
+      "key": "waktu_kegiatan",
+      "label": "Waktu Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "13.00 – 17.00 WIB",
+      "description": "Rentang waktu pemakaian ruangan.",
+      "group": "detail_peminjaman"
+    },
+    {
+      "key": "ruangan_kegiatan",
+      "label": "Ruangan yang Dipinjam",
+      "type": "string",
+      "required": true,
+      "default_value": "Theater D3 PENS HH-101",
+      "description": "Kode dan nama ruangan yang dipinjam.",
+      "group": "detail_peminjaman"
+    },
+    {
+      "key": "fasilitas_tambahan",
+      "label": "Fasilitas Tambahan",
+      "type": "string",
+      "required": false,
+      "default_value": "beserta Videotron dan Sound",
+      "description": "Fasilitas pelengkap yang diminta, diawali kata hubung (misal: 'beserta Videotron dan Sound' atau dikosongkan jika tidak ada).",
+      "group": "detail_peminjaman"
+    },
+    {
+      "key": "jabatan_pemohon_1",
+      "label": "Jabatan Pemohon 1 (Organisasi)",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Umum UKKI PENS",
+      "description": "Jabatan pimpinan ormawa/hima pemohon.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_1",
+      "label": "Nama Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Yusuf Ramadhani Arianto",
+      "description": "Nama lengkap pimpinan ormawa.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_1",
+      "label": "NRP Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "3124600056",
+      "description": "Nomor Registrasi Pokok mahasiswa pemohon 1.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_1",
+      "label": "QR Tanda Tangan Pemohon 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 1]",
+      "description": "Placeholder QR Code autentikasi penandatangan akun pemohon 1.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_pemohon_2",
+      "label": "Jabatan Pemohon 2 (Kepanitiaan)",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Pelaksana",
+      "description": "Jabatan ketua pelaksana kegiatan.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_2",
+      "label": "Nama Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Fadhil Muhammad Daffa",
+      "description": "Nama lengkap ketua pelaksana kegiatan.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_2",
+      "label": "NRP Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "3124600118",
+      "description": "Nomor Registrasi Pokok mahasiswa pemohon 2.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_2",
+      "label": "QR Tanda Tangan Pemohon 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 2]",
+      "description": "Placeholder QR Code autentikasi penandatangan akun pemohon 2.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_1",
+      "label": "Jabatan Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+      "description": "Jabatan dosen/tim pembina minat bakat kemahasiswaan.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_1",
+      "label": "Nama Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+      "description": "Nama lengkap pejabat mengetahui 1 dengan gelar.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_1",
+      "label": "NIP Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "199208262022031007",
+      "description": "Nomor Induk Pegawai mengetahui 1.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_1",
+      "label": "QR Tanda Tangan Mengetahui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 1]",
+      "description": "Placeholder QR Code autentikasi penandatangan akun mengetahui 1.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_2",
+      "label": "Jabatan Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Pembina UKKI PENS",
+      "description": "Jabatan dosen pembina ormawa pengaju.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_2",
+      "label": "Nama Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Adnan Rachmat Anom Besari, S.ST., M.Sc., Ph.D",
+      "description": "Nama lengkap pembina ormawa dengan gelar.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_2",
+      "label": "NIP Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "198509102012121003",
+      "description": "Nomor Induk Pegawai pembina ormawa.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_2",
+      "label": "QR Tanda Tangan Mengetahui 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 2]",
+      "description": "Placeholder QR Code autentikasi penandatangan akun mengetahui 2.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_menyetujui_1",
+      "label": "Jabatan Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Wakil Direktur Bidang Kemahasiswaan dan Alumni",
+      "description": "Jabatan pimpinan akhir yang berwenang menyetujui peminjaman.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_menyetujui_1",
+      "label": "Nama Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Ir. Kholid Fathoni, S.Kom., M.T., IPM.",
+      "description": "Nama lengkap wakil direktur dengan gelar.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_menyetujui_1",
+      "label": "NIP Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "198012262008121000",
+      "description": "Nomor Induk Pegawai wakil direktur.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_menyetujui_1",
+      "label": "QR Tanda Tangan Menyetujui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Menyetujui 1]",
+      "description": "Placeholder QR Code autentikasi penandatangan akun menyetujui 1.",
+      "group": "tanda_tangan"
+    }
+  ],
+  "sample_payload": {
+    "nomor_surat": "6.1/INT/PMH/BPM/UKKI-PENS/IX/2026",
+    "perihal": "Permohonan Peminjaman Ruangan",
+    "lampiran": "-",
+    "kota_surat": "Surabaya",
+    "tanggal_surat": "23 September 2026",
+    "tujuan_surat_baris_1": "Wadir II Perancangan, Keuangan, dan Umum",
+    "tujuan_surat_baris_2": "Kepala Bagian Akademik dan Kemahasiswaan Politeknik Elektronika Negeri Surabaya",
+    "jenis_permohonan": "peminjaman ruangan",
+    "keperluan_tujuan": "kegiatan Sekolah Mentor 2 UKKI PENS",
+    "nama_kegiatan": "Sekolah Mentor 2",
+    "hari_tanggal_kegiatan": "Jum'at, 25 September 2026",
+    "waktu_kegiatan": "13.00 – 17.00 WIB",
+    "ruangan_kegiatan": "Theater D3 PENS HH-101",
+    "fasilitas_tambahan": "beserta Videotron dan Sound",
+    "jabatan_pemohon_1": "Ketua Umum UKKI PENS",
+    "nama_pemohon_1": "Yusuf Ramadhani Arianto",
+    "nrp_pemohon_1": "3124600056",
+    "qr_pemohon_1": "[QR Code Tanda Tangan Pemohon 1]",
+    "jabatan_pemohon_2": "Ketua Pelaksana",
+    "nama_pemohon_2": "Fadhil Muhammad Daffa",
+    "nrp_pemohon_2": "3124600118",
+    "qr_pemohon_2": "[QR Code Tanda Tangan Pemohon 2]",
+    "jabatan_mengetahui_1": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+    "nama_mengetahui_1": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+    "nip_mengetahui_1": "199208262022031007",
+    "qr_mengetahui_1": "[QR Code Tanda Tangan Mengetahui 1]",
+    "jabatan_mengetahui_2": "Pembina UKKI PENS",
+    "nama_mengetahui_2": "Adnan Rachmat Anom Besari, S.ST., M.Sc., Ph.D",
+    "nip_mengetahui_2": "198509102012121003",
+    "qr_mengetahui_2": "[QR Code Tanda Tangan Mengetahui 2]",
+    "jabatan_menyetujui_1": "Wakil Direktur Bidang Kemahasiswaan dan Alumni",
+    "nama_menyetujui_1": "Ir. Kholid Fathoni, S.Kom., M.T., IPM.",
+    "nip_menyetujui_1": "198012262008121000",
+    "qr_menyetujui_1": "[QR Code Tanda Tangan Menyetujui 1]"
+  }
+}

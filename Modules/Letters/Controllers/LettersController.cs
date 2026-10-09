@@ -12,6 +12,10 @@ namespace SignIt.Modules.Letters.Controllers;
 public sealed class LettersController(LettersService letters, RoutingService routing, LetterSubmissionService submissions,
     LetterPreviewService previews) : ControllerBase
 {
+    [HttpGet]
+    public async Task<ActionResult<LetterListDto>> List(CancellationToken ct, int page = 1, int pageSize = 20)
+        => Ok(await letters.ListAsync(User.GetUserId(), page, pageSize, ct));
+
     [HttpPost("drafts")]
     [RequestSizeLimit(256 * 1024)]
     public async Task<ActionResult<DraftDto>> Create(SaveDraftRequest request, CancellationToken ct)
