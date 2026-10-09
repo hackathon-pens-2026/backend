@@ -112,4 +112,25 @@ public sealed class WorkflowTask
         Status = WorkflowTaskStatus.Superseded;
         RowVersion = Guid.NewGuid();
     }
+
+    public void Defer(Guid actor, DateTimeOffset now, DateTimeOffset until, string reason)
+    {
+        if (Status != WorkflowTaskStatus.Active || actor == Guid.Empty || until <= now || string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("Penundaan membutuhkan tugas aktif, actor, alasan dan batas waktu baru.");
+        Status = WorkflowTaskStatus.Deferred;
+        DueAt = until;
+        ActedByUserId = actor;
+        ActedAt = now;
+        Comment = reason.Trim();
+        RowVersion = Guid.NewGuid();
+    }
+
+    public void Cancel()
+    {
+        if (Status is not (WorkflowTaskStatus.Pending or WorkflowTaskStatus.Active or WorkflowTaskStatus.Deferred)) return;
+        Status = WorkflowTaskStatus.Cancelled;
+        RowVersion = Guid.NewGuid();
+    }
+
+    public void Touch() => RowVersion = Guid.NewGuid();
 }

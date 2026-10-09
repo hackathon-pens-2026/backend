@@ -90,7 +90,7 @@ public sealed class LetterRequest
 
     public void Submit(Guid organizationId, string number, DateTimeOffset now)
     {
-        if (Status != LetterStatus.Draft || organizationId == Guid.Empty || string.IsNullOrWhiteSpace(number))
+        if (Status is not (LetterStatus.Draft or LetterStatus.NeedsRevision) || organizationId == Guid.Empty || string.IsNullOrWhiteSpace(number))
             throw new InvalidOperationException("Hanya draft valid yang dapat diajukan.");
         OrganizationId = organizationId;
         Number = number;
@@ -117,13 +117,31 @@ public sealed class LetterRequest
 
     public void MarkRejected()
     {
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat ditolak.");
         Status = LetterStatus.Rejected;
         RowVersion = Guid.NewGuid();
     }
 
     public void MarkNeedsRevision()
     {
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat diminta revisi.");
         Status = LetterStatus.NeedsRevision;
+        RowVersion = Guid.NewGuid();
+    }
+
+    public void UpdateDraft(string title, Guid revisionId)
+    {
+        if (Status is not (LetterStatus.Draft or LetterStatus.NeedsRevision) || string.IsNullOrWhiteSpace(title) || revisionId == Guid.Empty)
+            throw new InvalidOperationException("Hanya draft/revisi yang dapat diedit.");
+        Title = title.Trim();
+        SetCurrentRevision(revisionId);
+    }
+
+    public void Cancel()
+    {
+        if (Status is not (LetterStatus.Draft or LetterStatus.InProgress or LetterStatus.NeedsRevision))
+            throw new InvalidOperationException("Surat ini tidak dapat dibatalkan.");
+        Status = LetterStatus.Cancelled;
         RowVersion = Guid.NewGuid();
     }
 

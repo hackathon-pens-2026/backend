@@ -43,7 +43,7 @@ public sealed class Delegation
     }
 
     public bool IsValidFor(Guid fromUserId, Guid toUserId, DateTimeOffset now)
-        => IsActive && FromUserId == fromUserId && ToUserId == toUserId && now >= StartAt && now <= EndAt;
+        => IsActive && FromUserId == fromUserId && ToUserId == toUserId && now >= StartAt && now < EndAt;
 
     public void Revoke() => IsActive = false;
 }

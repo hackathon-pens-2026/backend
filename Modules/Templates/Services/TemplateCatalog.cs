@@ -32,7 +32,7 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
                     : key is "nama_pembina_ormawa" or "nama_ketua_pelaksana" or "nama_penanggung_jawab" or "nama_pembina_minat_bakat" ? "participant"
                     : key == "ruangan_kegiatan" ? "resource"
                     : key == "nama_ormawa" ? "organization"
-                    : key == "nomor_surat" ? "server" : "user";
+                    : key is "nomor_surat" or "nama_kampus" ? "server" : "user";
                 return new TemplateField(key, field.GetProperty("label").GetString()!,
                     field.GetProperty("type").GetString()!, field.GetProperty("required").GetBoolean(), group, source);
             }).ToArray();

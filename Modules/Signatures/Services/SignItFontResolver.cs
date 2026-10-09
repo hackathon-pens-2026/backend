@@ -14,7 +14,7 @@ public sealed class SignItFontResolver : IFontResolver
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
     ];
 
-    private static byte[]? _cachedFontBytes;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> CachedFonts = new();
     private static bool _initialized;
     private static readonly object Lock = new();
 
@@ -41,14 +41,14 @@ public sealed class SignItFontResolver : IFontResolver
 
     public byte[]? GetFont(string faceName)
     {
-        if (_cachedFontBytes != null) return _cachedFontBytes;
+        if (CachedFonts.TryGetValue(faceName, out var cached)) return cached;
 
-        foreach (var path in SearchPaths)
+        foreach (var regularPath in SearchPaths)
         {
+            var path = faceName == "SignItBoldFont" ? BoldPath(regularPath) : regularPath;
             if (File.Exists(path))
             {
-                _cachedFontBytes = File.ReadAllBytes(path);
-                return _cachedFontBytes;
+                return CachedFonts.GetOrAdd(faceName, _ => File.ReadAllBytes(path));
             }
         }
 
@@ -57,6 +57,12 @@ public sealed class SignItFontResolver : IFontResolver
 
     public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic)
     {
-        return new FontResolverInfo("SignItDefaultFont");
+        return new FontResolverInfo(isBold ? "SignItBoldFont" : "SignItDefaultFont", false, isItalic);
     }
+
+    private static string BoldPath(string regularPath) => regularPath
+        .Replace("arial.ttf", "arialbd.ttf", StringComparison.OrdinalIgnoreCase)
+        .Replace("DejaVuSans.ttf", "DejaVuSans-Bold.ttf", StringComparison.Ordinal)
+        .Replace("LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf", StringComparison.Ordinal)
+        .Replace("FreeSans.ttf", "FreeSansBold.ttf", StringComparison.Ordinal);
 }

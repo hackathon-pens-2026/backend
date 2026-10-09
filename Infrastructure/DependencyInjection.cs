@@ -57,6 +57,21 @@ public static class DependencyInjection
         services.AddScoped<SignIt.Modules.Letters.Services.LettersService>();
         services.AddScoped<SignIt.Modules.Letters.Services.LetterSubmissionService>();
         services.AddScoped<SignIt.Modules.Routing.Services.RoutingService>();
+        services.AddOptions<SignIt.Modules.Workflow.Services.WorkflowOptions>().Bind(configuration.GetSection("Workflow"))
+            .Validate(o => o.SlaDays is >= 1 and <= 30, "Workflow:SlaDays di luar batas aman.").ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<SignIt.Modules.Workflow.Services.WorkflowOptions>>().Value);
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowTaskAccess>();
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowService>();
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowQueryService>();
+        services.AddSingleton<SignIt.Modules.Templates.Services.ILetterTemplateRenderer, SignIt.Modules.Templates.Services.PdfSharpLetterTemplateRenderer>();
+        services.AddScoped<SignIt.Modules.Letters.Services.LetterPreviewService>();
+        services.AddScoped<SignIt.Modules.Letters.Services.LetterPreviewProcessor>();
+        services.AddOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>().Bind(configuration.GetSection("Preview"))
+            .Validate(o => o.PollSeconds is >= 1 and <= 60 && o.RenderTimeoutSeconds is >= 5 and <= 60
+                && o.LeaseSeconds >= o.RenderTimeoutSeconds + 20 && o.LeaseSeconds <= 180,
+                "Konfigurasi worker preview tidak valid.").ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>>().Value);
+        services.AddHostedService<SignIt.Modules.Letters.Services.LetterPreviewWorker>();
         services.AddScoped<SignIt.Modules.Rooms.Services.RoomReservationService>();
         services.AddScoped<LetterChatOrchestrator>();
 
@@ -77,6 +92,7 @@ public static class DependencyInjection
         services.AddSingleton<IPdfOverlayService, PdfSharpOverlayService>();
         services.AddScoped<IUserSignatureQrService, UserSignatureQrService>();
         services.AddScoped<ISignatureWorkflowService, SignatureWorkflowService>();
+        services.AddHostedService<SignatureFinalizationWorker>();
         services.AddScoped<IPublicVerificationService, PublicVerificationService>();
 
         services.AddOptions<ResetEmailOptions>().Bind(configuration.GetSection("Email"))
@@ -89,7 +105,15 @@ public static class DependencyInjection
             .Validate(o => !o.WorkerEnabled || (!string.IsNullOrWhiteSpace(o.From)
                 && !string.IsNullOrWhiteSpace(o.ReplyTo)), "Email:From dan ReplyTo wajib untuk worker aktif.")
             .Validate(o => environment.IsProduction() || o.SandboxMode,
-                "Lingkungan non-production wajib menggunakan Email:SandboxMode.").ValidateOnStart();
+                "Lingkungan non-production wajib menggunakan Email:SandboxMode.")
+            .Validate(o => Uri.TryCreate(o.AppBaseUrl, UriKind.Absolute, out var appUri)
+                && (appUri.Scheme == Uri.UriSchemeHttps
+                    || (environment.IsDevelopment() && appUri.Scheme == "http" && appUri.IsLoopback)),
+                "Email:AppBaseUrl harus HTTPS (localhost HTTP untuk development).")
+            .Validate(o => o.LetterPathTemplate.StartsWith('/') && o.LetterPathTemplate.Contains("{id}"),
+                "Email:LetterPathTemplate harus diawali '/' dan memuat {id}.")
+            .Validate(o => o.ReminderCooldownHours is >= 1 and <= 168 && o.MaxRemindersPerTask is >= 1 and <= 10
+                && o.ReminderPollSeconds is >= 5 and <= 300, "Konfigurasi reminder email tidak valid.").ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ResetEmailOptions>>().Value);
         services.AddOptions<ResendOptions>().Bind(configuration.GetSection("Resend"))
             .Validate(o => !configuration.GetValue<bool>("Email:WorkerEnabled") || !string.IsNullOrWhiteSpace(o.ApiKey),
@@ -98,6 +122,7 @@ public static class DependencyInjection
         services.AddSingleton<IEmailWebhookVerifier, ResendWebhookVerifier>();
         services.AddScoped<IEmailEventStore, EfEmailEventStore>();
         services.AddScoped<EmailWebhookProcessor>();
+        services.AddScoped<WorkflowEmailService>();
 
         services.AddOptions<Email.DataProtectionOptions>().Bind(configuration.GetSection("DataProtection"))
             .Validate(o => !string.IsNullOrWhiteSpace(o.KeyDirectory), "DataProtection:KeyDirectory wajib diisi.").ValidateOnStart();
@@ -110,7 +135,14 @@ public static class DependencyInjection
             client.BaseAddress = new Uri("https://api.resend.com/");
             client.Timeout = TimeSpan.FromSeconds(sp.GetRequiredService<ResetEmailOptions>().HttpTimeoutSeconds);
         });
+        services.AddHttpClient<IEmailSender, ResendEmailSender>((sp, client) =>
+        {
+            client.BaseAddress = new Uri("https://api.resend.com/");
+            client.Timeout = TimeSpan.FromSeconds(sp.GetRequiredService<ResetEmailOptions>().HttpTimeoutSeconds);
+        });
         services.AddHostedService<PasswordResetEmailWorker>();
+        services.AddHostedService<EmailDeliveryWorker>();
+        services.AddHostedService<WorkflowReminderWorker>();
         return services;
     }
 }

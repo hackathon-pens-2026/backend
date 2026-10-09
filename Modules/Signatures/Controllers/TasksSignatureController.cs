@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+using SignIt.Modules.Workflow.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SignIt.Modules.Authentication.Services;
@@ -15,10 +15,12 @@ namespace SignIt.Modules.Signatures.Controllers;
 public sealed class TasksSignatureController : ControllerBase
 {
     private readonly ISignatureWorkflowService _workflow;
+    private readonly WorkflowService _decisions;
 
-    public TasksSignatureController(ISignatureWorkflowService workflow)
+    public TasksSignatureController(ISignatureWorkflowService workflow, WorkflowService decisions)
     {
         _workflow = workflow;
+        _decisions = decisions;
     }
 
     [HttpPost("sign")]
@@ -97,34 +99,30 @@ public sealed class TasksSignatureController : ControllerBase
     }
 
     [HttpPost("reject")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Reject(
-        Guid id,
-        [FromBody] TaskReasonRequest request,
-        CancellationToken ct)
-    {
-        var actorUserId = User.GetUserId();
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var userAgent = Request.Headers.UserAgent.ToString();
-
-        await _workflow.RejectTaskAsync(id, actorUserId, request.Reason, ip, userAgent, ct);
-        return NoContent();
-    }
+    public Task<ActionResult<WorkflowMutationDto>> Reject(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "reject", request, ct);
 
     [HttpPost("request-revision")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> RequestRevision(
-        Guid id,
-        [FromBody] TaskReasonRequest request,
-        CancellationToken ct)
-    {
-        var actorUserId = User.GetUserId();
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var userAgent = Request.Headers.UserAgent.ToString();
+    public Task<ActionResult<WorkflowMutationDto>> RequestRevision(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "request-revision", request, ct);
 
-        await _workflow.RequestRevisionTaskAsync(id, actorUserId, request.Reason, ip, userAgent, ct);
-        return NoContent();
-    }
+    [HttpPost("defer")]
+    public Task<ActionResult<WorkflowMutationDto>> Defer(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "defer", request, ct);
+
+    [HttpPost("resume")]
+    public Task<ActionResult<WorkflowMutationDto>> Resume(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "resume", request, ct);
+
+    [HttpPost("delegate")]
+    public Task<ActionResult<WorkflowMutationDto>> Delegate(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "delegate", request, ct);
+
+    [HttpPost("revoke-delegation")]
+    public Task<ActionResult<WorkflowMutationDto>> RevokeDelegation(Guid id, WorkflowMutationRequest request, CancellationToken ct)
+        => Decide(id, "revoke-delegation", request, ct);
+
+    private async Task<ActionResult<WorkflowMutationDto>> Decide(Guid id, string action, WorkflowMutationRequest request, CancellationToken ct)
+        => Ok(await _decisions.MutateAsync(User.GetUserId(), id, action, request,
+            Request.Headers["Idempotency-Key"].FirstOrDefault() ?? "", ct));
 }
-
-public sealed record TaskReasonRequest([property: JsonRequired] string Reason);

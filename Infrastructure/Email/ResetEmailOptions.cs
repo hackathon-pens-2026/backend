@@ -13,6 +13,11 @@ public sealed class ResetEmailOptions
     public int HttpTimeoutSeconds { get; set; } = 30;
     public int DailyBudget { get; set; } = 100;
     public int MonthlyBudget { get; set; } = 3000;
+    public string AppBaseUrl { get; set; } = "https://app.signit.example";
+    public string LetterPathTemplate { get; set; } = "/surat/{id}";
+    public int ReminderCooldownHours { get; set; } = 24;
+    public int MaxRemindersPerTask { get; set; } = 3;
+    public int ReminderPollSeconds { get; set; } = 15;
 }
 
 public sealed class ResendOptions
