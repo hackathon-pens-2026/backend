@@ -107,14 +107,14 @@ public sealed class LetterRequest
 
     public void MarkRejected()
     {
-        if (Status != LetterStatus.InProgress) throw new InvalidOperationException("Hanya surat berjalan yang dapat ditolak.");
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat ditolak.");
         Status = LetterStatus.Rejected;
         RowVersion = Guid.NewGuid();
     }
 
     public void MarkNeedsRevision()
     {
-        if (Status != LetterStatus.InProgress) throw new InvalidOperationException("Hanya surat berjalan yang dapat diminta revisi.");
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat diminta revisi.");
         Status = LetterStatus.NeedsRevision;
         RowVersion = Guid.NewGuid();
     }

@@ -75,6 +75,7 @@ public static class DependencyInjection
         services.AddSingleton<IPdfOverlayService, PdfSharpOverlayService>();
         services.AddScoped<IUserSignatureQrService, UserSignatureQrService>();
         services.AddScoped<ISignatureWorkflowService, SignatureWorkflowService>();
+        services.AddHostedService<SignatureFinalizationWorker>();
         services.AddScoped<IPublicVerificationService, PublicVerificationService>();
 
         services.AddOptions<ResetEmailOptions>().Bind(configuration.GetSection("Email"))
