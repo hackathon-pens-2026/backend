@@ -36,9 +36,27 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<RoomReservation> RoomReservations => Set<RoomReservation>();
+    public DbSet<LetterPreviewJob> LetterPreviewJobs => Set<LetterPreviewJob>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        var previews = model.Entity<LetterPreviewJob>();
+        previews.ToTable("letter_preview_jobs", t =>
+        {
+            t.HasCheckConstraint("ck_preview_state", "\"State\" IN ('Pending','Processing','Ready','Failed','Superseded')");
+            t.HasCheckConstraint("ck_preview_attempts", "\"Attempts\" >= 0");
+        });
+        previews.HasKey(x => x.Id);
+        previews.Property(x => x.InputHash).HasMaxLength(64);
+        previews.Property(x => x.InputJson).HasColumnType("text");
+        previews.Property(x => x.SlotsJson).HasColumnType("text");
+        previews.Property(x => x.State).HasMaxLength(30);
+        previews.Property(x => x.ErrorCode).HasMaxLength(80);
+        previews.HasIndex(x => new { x.RevisionId, x.InputHash }).IsUnique();
+        previews.HasIndex(x => new { x.State, x.CreatedAt });
+        previews.HasOne<LetterRequest>().WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Restrict);
+        previews.HasOne<LetterRevision>().WithMany().HasForeignKey(x => x.RevisionId).OnDelete(DeleteBehavior.Restrict);
+        previews.HasOne<Document>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Restrict);
         var organizations = model.Entity<SignIt.Modules.Routing.Models.Organization>();
         organizations.ToTable("organizations", t => t.HasCheckConstraint("ck_organization_kind", "\"Kind\" IN ('Himpunan','Organisasi')"));
         organizations.HasKey(x => x.Id);

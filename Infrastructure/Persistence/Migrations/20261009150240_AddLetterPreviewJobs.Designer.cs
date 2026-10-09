@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SignIt.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SignIt.Infrastructure.Persistence;
 namespace SignIt.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261009150240_AddLetterPreviewJobs")]
+    partial class AddLetterPreviewJobs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -815,69 +818,6 @@ namespace SignIt.Infrastructure.Persistence.Migrations
                     b.ToTable("letter_revisions", (string)null);
                 });
 
-            modelBuilder.Entity("SignIt.Modules.Rooms.Models.RoomReservation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActivityType")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset?>("ClosedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("ConfirmedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("EndsAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("FacilityResourceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("LetterRequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("LetterRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("RequestedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("StartsAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LetterRevisionId");
-
-                    b.HasIndex("RequestedByUserId");
-
-                    b.HasIndex("FacilityResourceId", "Status", "StartsAt");
-
-                    b.ToTable("room_reservations", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_room_reservation_range", "\"EndsAt\" > \"StartsAt\"");
-
-                            t.HasCheckConstraint("ck_room_reservation_status", "\"Status\" IN ('Pending','Confirmed','Cancelled','Released')");
-                        });
-                });
-
             modelBuilder.Entity("SignIt.Modules.Routing.Models.Facility", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1405,21 +1345,6 @@ namespace SignIt.Infrastructure.Persistence.Migrations
                     b.HasOne("SignIt.Modules.Letters.Models.LetterRequest", null)
                         .WithMany()
                         .HasForeignKey("RequestId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("SignIt.Modules.Rooms.Models.RoomReservation", b =>
-                {
-                    b.HasOne("SignIt.Modules.Routing.Models.FacilityResource", null)
-                        .WithMany()
-                        .HasForeignKey("FacilityResourceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SignIt.Modules.Authentication.Models.User", null)
-                        .WithMany()
-                        .HasForeignKey("RequestedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

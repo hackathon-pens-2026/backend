@@ -14,15 +14,28 @@ OrganizationChairId, ResourceId, ReviewDocumentId, ExpectedReviewHash, Slots.
 Setiap slot: PositionCode, PageIndex (0-based), X, Y, Width, Height, dalam PDF point dari kiri atas.
 Slot minimal 100 × 100 point; rotasi halaman harus dinormalisasi; slot tidak boleh bertumpuk.
 
-Renderer harus menyediakan Document berjenis Review, RevisionId milik draft, ProcessingState Ready,
-MimeType application/pdf, hash SHA-256 dan file private. Tidak ada endpoint untuk client mendaftarkan
-StorageKey arbitrer. Integrasi renderer belum tersedia sehingga preview tidak dipalsukan.
-UI meninjau routing dan slot sebelum submit. Submit memvalidasi ulang assignment dan fasilitas.
+POST /api/v1/letters/{id}/preview menerima ExpectedVersion, ExpectedRevisionId, ExpectedContentHash,
+OrganizationId, CommitteeChairId, OrganizationChairId, dan ResourceId. Mengembalikan 202 + Location
+untuk job baru/berjalan; 200 bila hasil identik sudah Ready. Generate tidak submit atau menandatangani.
+GET /api/v1/letters/{id}/previews/{jobId} untuk polling. Respons berisi State (Pending/Processing/Ready/
+Failed/Superseded), ErrorCode, ReviewDocumentId, ReviewHash, Slots, dan DownloadUrl.
+GET /api/v1/letters/{id}/documents/{documentId} mengirim PDF private hanya kepada pemilik surat.
+Semua respons preview/download no-store; tidak ada URL storage publik atau endpoint StorageKey arbitrer.
+
+Worker renderer menyediakan Document berjenis Review, RevisionId milik draft, ProcessingState Ready,
+MimeType application/pdf, hash SHA-256 dan file private. Gunakan ReviewDocumentId, ReviewHash dan Slots
+dari respons Ready untuk submit. Client tidak boleh menentukan ulang koordinat slot. Submit memvalidasi
+ulang assignment, fasilitas, fingerprint peserta/data/layout/aset template, hash PDF dan slot server.
 
 Submit membekukan field, template, routing, resource dan slot dalam revisi baru; membuat satu task per tahap;
-aktif hanya tahap pertama. Pemilik draft diperiksa, baris pengajuan dikunci, transaksi serializable.
+aktif hanya tahap pertama. Pemilik draft diperiksa, baris pengajuan dikunci; transaksi memakai
+Read Committed + kunci pengajuan yang sama untuk seluruh mutasi Workflow.
 Retry dengan key dan payload sama mengembalikan pengajuan yang sama; payload berbeda ditolak.
 Nomor SGN-{UUID} adalah referensi aplikasi sementara, bukan format nomor surat resmi kampus.
 
-Belum termasuk reservasi jadwal, email outbox (pekerjaan tim email), renderer, serta kebijakan nomor resmi.
-Assignment akun aktual masih harus diprovisioning. Build bukan bukti integrasi PostgreSQL lintas akun.
+Belum termasuk reservasi jadwal, email outbox (pekerjaan tim email), serta kebijakan nomor resmi.
+Akun demo lokal tersedia; assignment akun kampus aktual masih harus diprovisioning.
+Lihat template-renderer.md untuk batas renderer dan pengujian PostgreSQL.
+
+Workflow, revisi/resubmit, penundaan, delegasi, antrean dan akses PDF penandatangan tersedia.
+Lihat workflow-contract.md untuk payload versi tugas dan perubahan respons reject/request-revision.

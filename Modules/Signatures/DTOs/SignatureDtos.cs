@@ -15,7 +15,8 @@ public sealed record UserSignatureQrDto(
 public sealed record SignTaskRequest(
     [property: JsonRequired] Guid ExpectedRevisionId,
     [property: JsonRequired] string ExpectedContentHash,
-    string? Comment = null);
+    string? Comment = null,
+    [property: JsonRequired] Guid ExpectedTaskVersion = default);
 
 public sealed record SignTaskResultDto(
     Guid TaskId,
