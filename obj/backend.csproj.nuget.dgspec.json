@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Nabeel\\project\\hackathon_pens_2026\\backend\\backend.csproj": {}
+    "D:\\KULIAHHHH_PENSSS\\Hackathon\\backend\\backend.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Nabeel\\project\\hackathon_pens_2026\\backend\\backend.csproj": {
+    "D:\\KULIAHHHH_PENSSS\\Hackathon\\backend\\backend.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Nabeel\\project\\hackathon_pens_2026\\backend\\backend.csproj",
+        "projectUniqueName": "D:\\KULIAHHHH_PENSSS\\Hackathon\\backend\\backend.csproj",
         "projectName": "backend",
-        "projectPath": "C:\\Users\\Nabeel\\project\\hackathon_pens_2026\\backend\\backend.csproj",
-        "packagesPath": "C:\\Users\\Nabeel\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Nabeel\\project\\hackathon_pens_2026\\backend\\obj\\",
+        "projectPath": "D:\\KULIAHHHH_PENSSS\\Hackathon\\backend\\backend.csproj",
+        "packagesPath": "C:\\Users\\M Fajrul\\.nuget\\packages\\",
+        "outputPath": "D:\\KULIAHHHH_PENSSS\\Hackathon\\backend\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\Nabeel\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\M Fajrul\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net10.0"
