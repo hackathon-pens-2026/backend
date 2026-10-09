@@ -59,6 +59,16 @@ public sealed class LetterRequest
         RowVersion = Guid.NewGuid();
     }
 
+    public void UpdateDraftTitle(string title)
+    {
+        if (Status != LetterStatus.Draft)
+            throw new InvalidOperationException("Hanya draf yang dapat diubah judulnya.");
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("Judul tidak boleh kosong.", nameof(title));
+        Title = title.Trim();
+        RowVersion = Guid.NewGuid();
+    }
+
     public void MarkFinalizing()
     {
         if (Status != LetterStatus.InProgress && Status != LetterStatus.ProcessingFailed
@@ -107,14 +117,14 @@ public sealed class LetterRequest
 
     public void MarkRejected()
     {
-        if (Status != LetterStatus.InProgress) throw new InvalidOperationException("Hanya surat berjalan yang dapat ditolak.");
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat ditolak.");
         Status = LetterStatus.Rejected;
         RowVersion = Guid.NewGuid();
     }
 
     public void MarkNeedsRevision()
     {
-        if (Status != LetterStatus.InProgress) throw new InvalidOperationException("Hanya surat berjalan yang dapat diminta revisi.");
+        if (Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution)) throw new InvalidOperationException("Hanya surat berjalan yang dapat diminta revisi.");
         Status = LetterStatus.NeedsRevision;
         RowVersion = Guid.NewGuid();
     }

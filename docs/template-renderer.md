@@ -58,14 +58,14 @@ Uji tambahan mencakup dua Generate bersamaan, field wajib kosong, renderer gagal
 dan submit melalui HTTP. Jalankan hanya pada API lokal yang memakai database pengujian.
 
 Contoh PDF diperiksa melalui pdfplumber serta render PNG dengan PDFium. Pemeriksaan kerangka PDF/koordinat
-saja tidak membuktikan layout visual. PDF final, penggantian label DRAFT/nomor, overlay QR setelah tindakan,
-reservasi dan email workflow merupakan pekerjaan lanjutan; jangan mengklaim preview sebagai surat selesai.
+saja tidak membuktikan layout visual. Preview bukan surat selesai; finalisasi signature dijelaskan di bawah.
+Integrasi reservasi dan email workflow masih merupakan pekerjaan terpisah.
 
-Workflow sekarang menyimpan evidence terakhir dalam transaksi sebelum pembacaan finalisasi. Fixture
-signature menyediakan PDF review nyata serta assignment berizin, dan tes state machine mengisolasi
-adapter overlay PDF. Renderer overlay produksi masih menolak format PNG QR dengan `Unsupported image format`.
-Tes Workflow yang lulus bukan bukti QR visual PDF final sudah benar; perbaikan adapter/finalization worker,
-nomor resmi dan penggantian label DRAFT tetap pekerjaan signature/PDF final. Lihat workflow-contract.md.
+Finalisasi sekarang dijalankan worker setelah transaksi evidence terakhir selesai. Overlay mendukung
+PNG QR aplikasi melalui ekspansi piksel lossless, dan renderer final memakai input preview yang dibekukan.
+Label DRAFT diganti label final dan nomor referensi SGN, tanpa mengubah review/revisi yang disetujui.
+Tes mencakup overlay nyata, retry, hash dan download privat; empat PDF final diperiksa dengan ekstraksi
+teks dan rendering PDFium. Nomor resmi kampus belum ditetapkan. Lihat signature-finalization.md.
 
 Referensi adapter: https://docs.pdfsharp.net/PDFsharp/Topics/Start/First-PDF.html
 Lisensi: https://docs.pdfsharp.net/General/License/License.html

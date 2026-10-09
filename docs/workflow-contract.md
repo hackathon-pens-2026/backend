@@ -134,10 +134,11 @@ resubmit, defer/resume dan cancel; sesi selalu di-logout. Tidak mengirim email p
 
 Belum selesai di pekerjaan ini:
 
-- #3: adapter PDF produksi menolak PNG QR (`Unsupported image format`); finalization masih inline,
-  belum job/lease/retry worker lengkap; label DRAFT, nomor resmi dan tampilan mandat PDF belum dituntaskan.
-  Evidence terakhir sudah disimpan dalam transaksi sebelum finalizer membaca database.
-- #4: pemeriksaan/reservasi jadwal fasilitas yang dijamin database pada persetujuan terakhir belum ada.
+- #3: backend finalisasi, kompatibilitas PNG, worker/retry, label final, download privat dan
+  referensi SGN telah diimplementasikan; lihat signature-finalization.md. Nomor resmi kampus
+  belum memiliki kebijakan penerbitan. Worker memakai status durable + row lock, bukan job/lease khusus.
+- #4: modul Rooms dan exclusion constraint telah tersedia, termasuk confirmation sebelum approval
+  terakhir; integrasi jadwal/reservasi ke pengajuan dan penanganan konflik masih perlu dituntaskan.
 - #5: email outbox Workflow dan reminder SLA belum terhubung (worker reset-password tidak menggantikannya).
 - #6: frontend belum mengonsumsi endpoint/kontrak tindakan di atas.
 

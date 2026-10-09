@@ -32,7 +32,7 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
             throw new SignItDomainException(DomainErrorKind.Validation, "invalid_title", "Judul wajib diisi, maksimal 300 karakter.");
         var template = (await templates.GetAllAsync(ct)).SingleOrDefault(x => x.TypeId == request.TypeId)
             ?? throw new SignItDomainException(DomainErrorKind.Validation, "unsupported_letter_type", "Tipe surat tidak tersedia.");
-        var allowed = template.Fields.Where(x => x.ValueSource == "user").Select(x => x.Key).ToHashSet();
+        var allowed = template.Fields.Where(x => x.ValueSource is not ("server" or "signatureEvidence")).Select(x => x.Key).ToHashSet();
         if (request.Fields is null || request.Fields.Any(x => !allowed.Contains(x.Key) || x.Value == null || x.Value.Length > 4000
             || x.Value.Any(c => char.IsControl(c) && c is not '\r' and not '\n' and not '\t')))
             throw new SignItDomainException(DomainErrorKind.Validation, "invalid_draft_fields", "Field tidak sesuai template atau melebihi batas.");
@@ -86,6 +86,34 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
                     active.DueAt.HasValue && active.DueAt < now));
         }).ToArray();
         return new(page, pageSize, total, items);
+    }
+
+    public async Task<DraftDto> UpdateDraftAsync(Guid actor, Guid id, string? title, Dictionary<string, string> fields, CancellationToken ct)
+    {
+        var letter = await db.LetterRequests.SingleOrDefaultAsync(x => x.Id == id && x.SubmittedByUserId == actor, ct)
+            ?? throw new SignItDomainException(DomainErrorKind.NotFound, "letter_not_found", "Surat tidak ditemukan.");
+        if (letter.Status != LetterStatus.Draft)
+            throw new SignItDomainException(DomainErrorKind.Conflict, "draft_not_editable", "Hanya surat dengan status draf yang dapat diubah.");
+
+        var template = (await templates.GetAllAsync(ct)).SingleOrDefault(x => x.TypeId == letter.TypeId)
+            ?? throw new SignItDomainException(DomainErrorKind.Validation, "unsupported_letter_type", "Tipe surat tidak tersedia.");
+        var allowed = template.Fields.Where(x => x.ValueSource is not ("server" or "signatureEvidence")).Select(x => x.Key).ToHashSet();
+        var sanitizedFields = fields
+            .Where(x => allowed.Contains(x.Key) && x.Value != null && x.Value.Length <= 4000)
+            .ToDictionary(x => x.Key, x => x.Value);
+
+        var now = clock.GetUtcNow();
+        if (!string.IsNullOrWhiteSpace(title) && title.Length <= 300)
+        {
+            letter.UpdateDraftTitle(title);
+        }
+
+        var revision = await db.LetterRevisions.SingleAsync(x => x.Id == letter.CurrentRevisionId, ct);
+        var json = JsonSerializer.Serialize(new SortedDictionary<string, string>(sanitizedFields));
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
+        revision.UpdateDraftContent(json, hash, now);
+        await db.SaveChangesAsync(ct);
+        return Map(letter, revision);
     }
 
     public async Task<DraftDto> GetAsync(Guid actor, Guid id, CancellationToken ct)

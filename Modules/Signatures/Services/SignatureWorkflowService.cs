@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
@@ -10,6 +12,7 @@ using SignIt.Modules.Signatures.DTOs;
 using SignIt.Modules.Signatures.Models;
 using SignIt.Modules.Workflow.Models;
 using SignIt.Modules.Workflow.Services;
+using SignIt.Modules.Templates.Services;
 
 namespace SignIt.Modules.Signatures.Services;
 
@@ -170,7 +173,13 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         await _db.SaveChangesAsync(ct);
         string? verificationCode = null;
         if (next == null)
-            verificationCode = await FinalizeDocumentInternalAsync(letterRequest, revision, ct);
+        {
+            // This persisted status is the durable work item. Rendering is performed
+            // by the worker after the approval/evidence transaction has committed.
+            letterRequest.MarkFinalizing();
+            _db.AuditLogs.Add(AuditLog.Record(null, "letter.finalization_queued", "LetterRequest",
+                letterRequest.Id, revision.Id, now, Guid.NewGuid().ToString("N")));
+        }
 
         var result = new SignTaskResultDto(currentTask.Id, currentTask.Status, now,
             evidence?.Id ?? Guid.Empty, evidence?.Role ?? "Acknowledgement", evidence?.PositionSnapshot,
@@ -184,38 +193,85 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
 
     public async Task<bool> RetryFinalizationAsync(Guid requestId, CancellationToken ct)
     {
-        var letterRequest = await _db.LetterRequests.SingleOrDefaultAsync(x => x.Id == requestId, ct);
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(ct) : null;
+        var letterRequest = _db.Database.IsRelational()
+            ? await _db.LetterRequests.FromSqlInterpolated($"SELECT * FROM letter_requests WHERE \"Id\"={requestId} FOR UPDATE").SingleOrDefaultAsync(ct)
+            : await _db.LetterRequests.SingleOrDefaultAsync(x => x.Id == requestId, ct);
+        if (letterRequest != null) await _db.Entry(letterRequest).ReloadAsync(ct);
         if (letterRequest == null || letterRequest.Status is not
-            (LetterStatus.ProcessingFailed or LetterStatus.Finalizing or LetterStatus.AwaitingResourceResolution))
+            (LetterStatus.ProcessingFailed or LetterStatus.Finalizing))
             return false;
         var revision = await _db.LetterRevisions.SingleOrDefaultAsync(x => x.Id == letterRequest.CurrentRevisionId, ct);
         if (revision == null) return false;
-        if (letterRequest.Status == LetterStatus.AwaitingResourceResolution && _roomReservations != null
-            && !(await _roomReservations.TryConfirmForRevisionAsync(revision.Id, ct)).Confirmed)
+        var tasks = await _db.WorkflowTasks.AsNoTracking().Where(x => x.RevisionId == revision.Id).ToListAsync(ct);
+        if (tasks.Count == 0 || tasks.Any(x => !WorkflowTaskAccess.IsDone(x.Status)))
             return false;
         await FinalizeDocumentInternalAsync(letterRequest, revision, ct);
         await _db.SaveChangesAsync(ct);
-        return true;
+        if (transaction != null) await transaction.CommitAsync(ct);
+        return letterRequest.Status == LetterStatus.Completed;
     }
 
     private async Task<string> FinalizeDocumentInternalAsync(LetterRequest letterRequest, LetterRevision revision, CancellationToken ct)
     {
-        letterRequest.MarkFinalizing();
+        if (letterRequest.Status != LetterStatus.Finalizing) letterRequest.MarkFinalizing();
         var now = _clock.GetUtcNow();
         try
         {
+            var tasks = await _db.WorkflowTasks.AsNoTracking().Where(x => x.RevisionId == revision.Id).ToListAsync(ct);
+            if (letterRequest.CurrentRevisionId != revision.Id || tasks.Count == 0
+                || tasks.Any(x => !WorkflowTaskAccess.IsDone(x.Status)))
+                throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "workflow_incomplete", "Semua tugas revisi harus selesai sebelum finalisasi.");
             byte[]? basePdfBytes = null;
             if (revision.ReviewDocumentId.HasValue)
             {
                 var review = await _db.Documents.SingleOrDefaultAsync(x => x.Id == revision.ReviewDocumentId.Value, ct);
-                if (review != null) basePdfBytes = await _storage.ReadBytesAsync(review.StorageKey, ct);
+                if (review != null)
+                {
+                    basePdfBytes = await _storage.ReadBytesAsync(review.StorageKey, ct);
+                    if (basePdfBytes != null && (basePdfBytes.LongLength != review.Bytes
+                        || !string.Equals(_qrGenerator.ComputeSha256(basePdfBytes), review.Sha256, StringComparison.OrdinalIgnoreCase)))
+                        throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "review_document_invalid", "Dokumen review berubah atau rusak.");
+                }
             }
             if (basePdfBytes == null || basePdfBytes.Length == 0)
                 throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "review_document_missing",
                     "Dokumen yang telah ditinjau tidak tersedia.");
 
             var participants = await _db.LetterParticipants.Where(x => x.RevisionId == revision.Id).ToListAsync(ct);
+            using (var snapshot = JsonDocument.Parse(revision.DataJson))
+            {
+                if (snapshot.RootElement.TryGetProperty("PreviewJobId", out var jobElement))
+                {
+                    if (_qrGenerator.ComputeSha256(Encoding.UTF8.GetBytes(revision.DataJson)) != revision.ContentHash)
+                        throw new InvalidOperationException("Snapshot revisi berubah.");
+                    var jobId = jobElement.GetGuid();
+                    var job = await _db.LetterPreviewJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, ct);
+                    if (job.RequestId != letterRequest.Id || job.DocumentId != revision.ReviewDocumentId || job.State != "Ready"
+                        || _qrGenerator.ComputeSha256(Encoding.UTF8.GetBytes(job.InputJson)) != job.InputHash)
+                        throw new InvalidOperationException("Snapshot renderer tidak sesuai dokumen review.");
+                    var input = JsonSerializer.Deserialize<PreviewRenderInput>(job.InputJson)
+                        ?? throw new InvalidOperationException("Snapshot renderer kosong.");
+                    var renderer = new PdfSharpLetterTemplateRenderer();
+                    var reconstructed = renderer.Render(input, ct);
+                    // PDF metadata IDs are not deterministic; the submitted snapshot
+                    // and stored review hash are validated separately.
+                    var rendered = renderer.RenderFinal(input, letterRequest.Number, ct);
+                    if (JsonSerializer.Serialize(reconstructed.Slots) != job.SlotsJson
+                        || !rendered.Slots.SequenceEqual(reconstructed.Slots)
+                        || rendered.Slots.Length != participants.Count
+                        || participants.Any(p => !rendered.Slots.Any(s => s.PositionCode == p.SlotKey
+                            && s.PageIndex == p.PageIndex && s.X == p.X && s.Y == p.Y && s.Width == p.Width && s.Height == p.Height)))
+                        throw new InvalidOperationException("Layout final mengubah slot yang disetujui.");
+                    basePdfBytes = rendered.Bytes;
+                }
+            }
             var evidences = await _db.SignatureEvidences.Where(x => x.RevisionId == revision.Id).ToListAsync(ct);
+            if (tasks.Where(t => t.ActionType is WorkflowActionType.Sign or WorkflowActionType.ApproveAndSign)
+                .Any(t => evidences.Count(e => e.TaskId == t.Id && e.ActorId == t.ActedByUserId
+                    && string.Equals(e.ContentHash, revision.ContentHash, StringComparison.OrdinalIgnoreCase)) != 1))
+                throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_invalid", "Evidence semua tugas tanda tangan wajib tersedia dan sesuai revisi.");
             var overlays = new List<PdfSignatureOverlayItem>();
             foreach (var participant in participants)
             {
@@ -225,20 +281,31 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
                 if (evidence == null)
                     throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_missing",
                         "Bukti tanda tangan peserta belum lengkap.");
+                if (!string.Equals(evidence.ContentHash, revision.ContentHash, StringComparison.OrdinalIgnoreCase)
+                    || task!.ActedByUserId != evidence.ActorId)
+                    throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_invalid", "Evidence tidak sesuai isi atau actor tugas.");
                 var qr = await _db.SignatureQrs.SingleOrDefaultAsync(x => x.Id == evidence.QrAssetId, ct);
                 var qrBytes = qr == null ? null : await _storage.ReadBytesAsync(qr.PrivateStorageKey, ct);
-                if (qrBytes == null || !string.Equals(_qrGenerator.ComputeSha256(qrBytes), evidence.QrHash, StringComparison.OrdinalIgnoreCase))
+                if (qr == null || qr.OwnerUserId != evidence.ActorId || qr.Version != evidence.QrVersion
+                    || !string.Equals(qr.ImageSha256, evidence.QrHash, StringComparison.OrdinalIgnoreCase)
+                    || qrBytes == null || !string.Equals(_qrGenerator.ComputeSha256(qrBytes), evidence.QrHash, StringComparison.OrdinalIgnoreCase))
                     throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_asset_invalid",
                         "Snapshot aset tanda tangan tidak tersedia atau telah berubah.");
+                var signerName = participant.DisplayNameSnapshot;
+                if (evidence.DelegatedFromUserId.HasValue)
+                {
+                    var actor = await _db.Users.AsNoTracking().SingleAsync(x => x.Id == evidence.ActorId, ct);
+                    signerName = $"{actor.Name} ({evidence.MandateDescription})";
+                }
                 overlays.Add(new PdfSignatureOverlayItem(participant.PageIndex, participant.X, participant.Y,
                     participant.Width, participant.Height, participant.Rotation, qrBytes,
-                    participant.DisplayNameSnapshot, participant.PositionSnapshot, evidence.SignedAt, true));
+                    signerName, evidence.PositionSnapshot, evidence.SignedAt, true));
             }
 
             var verificationCode = $"SIG-{Convert.ToHexString(RandomNumberGenerator.GetBytes(4))}-{Convert.ToHexString(RandomNumberGenerator.GetBytes(4))}";
             var finalPdf = await _pdfOverlay.OverlaySignaturesAsync(basePdfBytes, overlays, verificationCode, ct);
             var finalHash = Convert.ToHexStringLower(SHA256.HashData(finalPdf));
-            var storageKey = $"documents/{letterRequest.Id}/{revision.Id}/final.pdf";
+            var storageKey = $"documents/{letterRequest.Id}/{revision.Id}/final-{Guid.NewGuid():N}.pdf";
             await _storage.SaveAsync(storageKey, finalPdf, "application/pdf", ct);
             var finalDocumentId = Guid.NewGuid();
             _db.Documents.Add(Document.Create(finalDocumentId, revision.Id, DocumentKind.Final, storageKey,
@@ -256,6 +323,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
                 letterRequest.Id, verificationCode);
             return verificationCode;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to finalize document for letter {LetterId}", letterRequest.Id);

@@ -103,7 +103,11 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
             Assert.Equal(result, replay);
             Assert.Equal(order, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
             Assert.Equal(order == count ? 0 : 1, await db.WorkflowTasks.CountAsync(x => x.RevisionId == revision.Id && x.Status == WorkflowTaskStatus.Active));
-            if (order == count) Assert.True(result.IsWorkflowCompleted);
+            if (order == count)
+            {
+                Assert.False(result.IsWorkflowCompleted);
+                Assert.True(await signature.RetryFinalizationAsync(submitted.Submitted.LetterId, default));
+            }
         }
         Assert.Equal(frozen, (await db.LetterRevisions.AsNoTracking().SingleAsync(x => x.Id == revision.Id)).DataJson);
         Assert.Equal(1, await db.Documents.CountAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final));
@@ -295,11 +299,116 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
                 Assert.False(result.IsWorkflowCompleted);
                 Assert.Equal(WorkflowTaskStatus.Approved, result.Status);
                 Assert.Equal(result, await signature.ExecuteTaskActionAsync(task.Id, task.AssignedUserId, task.ActionType, request, $"fail-{order}", null, null, default));
+                Assert.False(await signature.RetryFinalizationAsync(data.Submitted.LetterId, default));
             }
         }
         Assert.Equal(LetterStatus.ProcessingFailed, (await db.LetterRequests.AsNoTracking().SingleAsync(x => x.Id == data.Submitted.LetterId)).Status);
         Assert.Equal(5, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
         Assert.False(await db.Documents.AnyAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final));
+        var controller = FinalizationController(services, data.Owner);
+        var failedLetter = await db.LetterRequests.SingleAsync(x => x.Id == data.Submitted.LetterId);
+        var retryRequest = new SignIt.Modules.Signatures.Controllers.RetryFinalizationRequest(revision.Id, revision.ContentHash, failedLetter.RowVersion);
+        var queued = await controller.Retry(data.Submitted.LetterId, retryRequest, "pdf-retry", default);
+        Assert.IsType<Microsoft.AspNetCore.Mvc.AcceptedResult>(queued.Result);
+        var replay = await controller.Retry(data.Submitted.LetterId, retryRequest, "pdf-retry", default);
+        Assert.IsType<Microsoft.AspNetCore.Mvc.AcceptedResult>(replay.Result);
+        Assert.True(await IsolatedSignatureWorkflow(services).RetryFinalizationAsync(data.Submitted.LetterId, default));
+        Assert.Equal(5, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
+        Assert.Equal(1, await db.Documents.CountAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final));
+    }
+
+    private static SignIt.Modules.Signatures.Controllers.LetterFinalizationController FinalizationController(IServiceProvider services, Guid actor)
+    {
+        var controller = new SignIt.Modules.Signatures.Controllers.LetterFinalizationController(
+            services.GetRequiredService<AppDbContext>(), services.GetRequiredService<IStorageService>(),
+            services.GetRequiredService<IQrCodeGenerator>(), services.GetRequiredService<TimeProvider>());
+        controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+        {
+            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+            {
+                User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                    [new System.Security.Claims.Claim("sub", actor.ToString())], "test"))
+            }
+        };
+        return controller;
+    }
+
+    [PostgresPreviewTheory]
+    [InlineData("proposal")]
+    public async Task BackgroundWorker_PublishesCommittedEvidenceWithoutAnotherSigningRequest(string type)
+    {
+        using var scope = fixture.Provider.CreateScope();
+        var services = scope.ServiceProvider;
+        var data = await SubmitAsync(services, type);
+        var db = services.GetRequiredService<AppDbContext>();
+        var revision = await db.LetterRevisions.SingleAsync(x => x.Id == data.Submitted.RevisionId);
+        for (var order = 1; order <= 5; order++)
+        {
+            var task = await db.WorkflowTasks.SingleAsync(x => x.RevisionId == revision.Id && x.Order == order);
+            await services.GetRequiredService<ISignatureWorkflowService>().ExecuteTaskActionAsync(task.Id,
+                task.AssignedUserId, task.ActionType, SignRequest(task, revision), $"worker-{order}", null, null, default);
+        }
+        using var worker = new SignatureFinalizationWorker(fixture.Provider.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<TimeProvider>(), NullLogger<SignatureFinalizationWorker>.Instance);
+        await worker.StartAsync(default);
+        try
+        {
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                var state = await db.LetterRequests.AsNoTracking().Where(x => x.Id == data.Submitted.LetterId)
+                    .Select(x => x.Status).SingleAsync();
+                if (state == LetterStatus.Completed) break;
+                await Task.Delay(200);
+            }
+        }
+        finally { await worker.StopAsync(default); }
+        Assert.Equal(LetterStatus.Completed, (await db.LetterRequests.AsNoTracking()
+            .SingleAsync(x => x.Id == data.Submitted.LetterId)).Status);
+        Assert.Equal(5, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
+        Assert.Equal(1, await db.Documents.CountAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final));
+    }
+
+    [PostgresPreviewTheory]
+    [InlineData("proposal")]
+    public async Task RealFinalization_ConcurrentRetry_PrivateDownload_AndHashIntegrity(string type)
+    {
+        using var scope = fixture.Provider.CreateScope();
+        var services = scope.ServiceProvider;
+        var data = await SubmitAsync(services, type);
+        var db = services.GetRequiredService<AppDbContext>();
+        var revision = await db.LetterRevisions.SingleAsync(x => x.Id == data.Submitted.RevisionId);
+        var signature = services.GetRequiredService<ISignatureWorkflowService>();
+        for (var order = 1; order <= 5; order++)
+        {
+            var task = await db.WorkflowTasks.SingleAsync(x => x.RevisionId == revision.Id && x.Order == order);
+            var result = await signature.ExecuteTaskActionAsync(task.Id, task.AssignedUserId, task.ActionType,
+                SignRequest(task, revision), $"real-{order}", null, null, default);
+            Assert.False(result.IsWorkflowCompleted);
+        }
+        var controller = FinalizationController(services, data.Owner);
+        var notReady = await Assert.ThrowsAsync<SignItDomainException>(() => controller.Download(data.Submitted.LetterId, default));
+        Assert.Equal("final_document_not_ready", notReady.Code);
+        async Task<bool> FinalizeAsync()
+        {
+            using var retryScope = fixture.Provider.CreateScope();
+            return await retryScope.ServiceProvider.GetRequiredService<ISignatureWorkflowService>()
+                .RetryFinalizationAsync(data.Submitted.LetterId, default);
+        }
+        var outcomes = await Task.WhenAll(FinalizeAsync(), FinalizeAsync());
+        Assert.Equal(1, outcomes.Count(x => x));
+        db.ChangeTracker.Clear();
+        Assert.IsType<Microsoft.AspNetCore.Mvc.FileContentResult>(await controller.Download(data.Submitted.LetterId, default));
+        var denied = await Assert.ThrowsAsync<SignItDomainException>(() => FinalizationController(services, data.Committee)
+            .Download(data.Submitted.LetterId, default));
+        Assert.Equal(DomainErrorKind.NotFound, denied.Kind);
+        var document = await db.Documents.SingleAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final);
+        var storage = services.GetRequiredService<IStorageService>();
+        var bytes = await storage.ReadBytesAsync(document.StorageKey, default);
+        await storage.SaveAsync(document.StorageKey, "%PDF-corrupt"u8.ToArray(), "application/pdf", default);
+        var corrupt = await Assert.ThrowsAsync<SignItDomainException>(() => controller.Download(data.Submitted.LetterId, default));
+        Assert.Equal("final_document_invalid", corrupt.Code);
+        await storage.SaveAsync(document.StorageKey, bytes!, "application/pdf", default);
+        Assert.Equal(5, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
     }
 
     [PostgresPreviewTheory]

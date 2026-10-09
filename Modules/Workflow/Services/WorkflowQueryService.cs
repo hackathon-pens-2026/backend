@@ -32,14 +32,15 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
         var now = clock.GetUtcNow();
         var organization = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == context.Letter.OrganizationId, ct);
         var capability = context.Task.ActionType == WorkflowActionType.Sign ? UserCapability.Signer : UserCapability.Approver;
-        return await (from assignment in db.Assignments.AsNoTracking()
+        var candidates = await (from assignment in db.Assignments.AsNoTracking()
                       join user in db.Users on assignment.UserId equals user.Id
                       where user.IsActive && user.Id != actor && assignment.IsActive && assignment.Scope == organization.Scope
                         && assignment.PositionCode == context.Task.DomainCode && assignment.Capability == capability
                         && assignment.ValidFrom <= now && (assignment.ValidTo == null || assignment.ValidTo > now)
                         && (context.Task.ActionType != WorkflowActionType.ApproveAndSign || user.Id != context.Letter.SubmittedByUserId)
-                      select new DelegateCandidateDto(user.Id, user.Name, assignment.PositionName, assignment.ValidTo))
+                      select new { UserId = user.Id, user.Name, assignment.PositionName, assignment.ValidTo })
             .Distinct().OrderBy(x => x.Name).ThenBy(x => x.UserId).ThenBy(x => x.ValidTo).Take(100).ToArrayAsync(ct);
+        return candidates.Select(x => new DelegateCandidateDto(x.UserId, x.Name, x.PositionName, x.ValidTo)).ToArray();
     }
 
     private IQueryable<WorkflowTask> Authorized(Guid actor)
@@ -68,7 +69,8 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
         if (page is < 1 or > 10000 || pageSize is < 1 or > 100)
             throw WorkflowTaskAccess.Error(DomainErrorKind.Validation, "invalid_pagination", "Page mulai 1; pageSize maksimal 100.");
         var query = Authorized(actor).Where(task => task.Status == WorkflowTaskStatus.Active
-            && db.LetterRequests.Any(letter => letter.CurrentRevisionId == task.RevisionId && letter.Status == LetterStatus.InProgress));
+            && db.LetterRequests.Any(letter => letter.CurrentRevisionId == task.RevisionId
+                && (letter.Status == LetterStatus.InProgress || letter.Status == LetterStatus.AwaitingResourceResolution)));
         var total = await query.CountAsync(ct);
         var tasks = await query.OrderBy(x => x.ActivatedAt).ThenBy(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         var items = new List<WorkflowTaskDto>();
@@ -139,7 +141,7 @@ public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess acc
         var actions = new List<string>();
         var precedingIncomplete = await db.WorkflowTasks.AnyAsync(x => x.RevisionId == task.RevisionId && x.Order < task.Order
             && x.Status != WorkflowTaskStatus.Signed && x.Status != WorkflowTaskStatus.Approved && x.Status != WorkflowTaskStatus.Acknowledged, ct);
-        if (canAct && !precedingIncomplete && context.Letter.Status == LetterStatus.InProgress && context.Letter.CurrentRevisionId == task.RevisionId)
+        if (canAct && !precedingIncomplete && context.Letter.Status is (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution) && context.Letter.CurrentRevisionId == task.RevisionId)
         {
             if (task.Status == WorkflowTaskStatus.Deferred) actions.Add("resume");
             if (task.Status == WorkflowTaskStatus.Active)
