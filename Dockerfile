@@ -20,6 +20,9 @@ WORKDIR /src
 # Leverage Docker layer caching: copy solution / csproj files first and restore
 COPY ["*.csproj", "./"]
 RUN dotnet restore
+
+# Copy all source files before build
+COPY . .
 RUN dotnet build -c $BUILD_CONFIGURATION -o /app/build --no-restore
 # Stage 3: Publish
 FROM build AS publish
