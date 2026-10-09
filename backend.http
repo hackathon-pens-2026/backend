@@ -1,6 +1,46 @@
-@backend_HostAddress = http://localhost:5217
+@baseUrl = https://localhost:7262/api/v1
+@accessToken = REPLACE_FROM_LOGIN_RESPONSE
+@refreshToken = REPLACE_FROM_LOGIN_RESPONSE
+@resetToken = REPLACE_FROM_RESET_EMAIL_FRAGMENT
 
-GET {{backend_HostAddress}}/weatherforecast/
-Accept: application/json
+### Internal seeded account login (supply the actual secret locally, never commit it)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
 
-###
+{
+  "email": "student@signit.example",
+  "password": "REPLACE_WITH_LOCAL_SECRET"
+}
+
+### Current profile
+GET {{baseUrl}}/me
+Authorization: Bearer {{accessToken}}
+
+### Active assignments and UI capabilities
+GET {{baseUrl}}/me/capabilities
+Authorization: Bearer {{accessToken}}
+
+### Refresh once; replace BOTH tokens using the response before the next refresh
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+### Logout current session
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{accessToken}}
+
+### Neutral response for password reset request
+POST {{baseUrl}}/auth/forgot-password
+Content-Type: application/json
+
+{ "email": "student@signit.example" }
+
+### Consume emailed token once and revoke all existing sessions
+POST {{baseUrl}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "{{resetToken}}",
+  "newPassword": "REPLACE_WITH_NEW_LOCAL_SECRET"
+}

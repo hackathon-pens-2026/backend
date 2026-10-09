@@ -36,8 +36,8 @@ WORKDIR /app
 # Copy published DLLs from publish stage
 COPY --from=publish /app/publish .
 
-# Use non-root user (built-in 'app' user in .NET 8 images) for enhanced container security
+# Use the built-in non-root 'app' user for enhanced container security
 USER app
 
-# Entrypoint: uses backend.dll matching backend.csproj
-ENTRYPOINT ["dotnet", "backend.dll"]
+# Entrypoint matches <AssemblyName>SignIt.Api</AssemblyName>
+ENTRYPOINT ["dotnet", "SignIt.Api.dll"]

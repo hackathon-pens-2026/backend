@@ -8,3 +8,8 @@
 **/*.suo
 .env*
 Dockerfile
+tests/
+.data/
+provisioning.local.json
+README.md
+AGENTS.md

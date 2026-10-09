@@ -480,3 +480,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# SignIt local secrets, Data Protection keys and provisioning manifests
+.data/
+provisioning.local.json
