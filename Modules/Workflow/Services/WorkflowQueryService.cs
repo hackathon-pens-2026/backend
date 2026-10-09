@@ -6,6 +6,7 @@ using SignIt.Modules.Authentication.Models;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Letters.Services;
 using SignIt.Modules.Workflow.Models;
+using SignIt.Modules.Signatures.Services;
 
 namespace SignIt.Modules.Workflow.Services;
 
@@ -23,6 +24,13 @@ public sealed record LetterWorkflowDto(Guid LetterId, string Number, LetterStatu
 
 public sealed class WorkflowQueryService(AppDbContext db, WorkflowTaskAccess access, IStorageService storage, TimeProvider clock)
 {
+    public async Task<byte[]> SignedDocumentAsync(Guid actor, Guid letterId, SignatureDocumentService documents, CancellationToken ct)
+    {
+        var workflow = await LetterAsync(actor, letterId, ct);
+        var revision = await db.LetterRevisions.AsNoTracking().SingleAsync(x => x.Id == workflow.RevisionId, ct);
+        return await documents.RenderAsync(revision, ct);
+    }
+
     public async Task<DelegateCandidateDto[]> CandidatesAsync(Guid actor, Guid taskId, CancellationToken ct)
     {
         var context = await access.LoadAsync(taskId, false, ct);

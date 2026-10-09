@@ -92,6 +92,7 @@ public static class DependencyInjection
         services.AddSingleton<IPdfOverlayService, PdfSharpOverlayService>();
         services.AddScoped<IUserSignatureQrService, UserSignatureQrService>();
         services.AddScoped<ISignatureWorkflowService, SignatureWorkflowService>();
+        services.AddScoped<SignatureDocumentService>();
         services.AddHostedService<SignatureFinalizationWorker>();
         services.AddScoped<IPublicVerificationService, PublicVerificationService>();
 

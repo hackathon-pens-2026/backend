@@ -82,7 +82,11 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
                         item.X, item.Y, item.Width, item.Height);
 
                     // Divide slot into QR area and text info area
-                    var qrSize = Math.Min(item.Width, item.Height) * 0.55;
+                    // Reserve the bottom 44pt for labels so a 100pt slot cannot overflow.
+                    var qrSize = Math.Min(72, Math.Min(item.Width - 8, item.Height - 48));
+                    if (qrSize < 32)
+                        throw new SignItDomainException(DomainErrorKind.Validation, "signature_slot_too_small",
+                            "Slot terlalu kecil untuk QR dan identitas penandatangan.");
                     var qrX = item.X + (item.Width - qrSize) / 2;
                     var qrY = item.Y + 4;
 
@@ -93,17 +97,17 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
 
                     if (fontRegular != null && fontBold != null && fontSmall != null)
                     {
-                        var textY = qrY + qrSize + 10;
+                        var textY = qrY + qrSize + 4;
                         var textRect = new XRect(item.X + 2, textY, item.Width - 4, 10);
-                        gfx.DrawString("Ditandatangani secara elektronik:", fontSmall, XBrushes.DarkSlateGray, textRect, XStringFormats.TopCenter);
+                        DrawFitted(gfx, "Ditandatangani secara elektronik:", fontSmall, XBrushes.DarkSlateGray, textRect);
 
                         textRect = new XRect(item.X + 2, textY + 9, item.Width - 4, 10);
-                        gfx.DrawString(item.SignerName, fontBold, XBrushes.Black, textRect, XStringFormats.TopCenter);
+                        DrawFitted(gfx, item.SignerName, fontBold, XBrushes.Black, textRect);
 
                         if (!string.IsNullOrWhiteSpace(item.SignerPosition))
                         {
                             textRect = new XRect(item.X + 2, textY + 18, item.Width - 4, 10);
-                            gfx.DrawString(item.SignerPosition, fontSmall, XBrushes.DarkGray, textRect, XStringFormats.TopCenter);
+                            DrawFitted(gfx, item.SignerPosition, fontSmall, XBrushes.DarkGray, textRect);
                         }
 
                         if (item.SignedAt.HasValue)
@@ -162,6 +166,20 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
             throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "pdf_overlay_failed",
                 $"Gagal melakukan overlay tanda tangan pada dokumen: {ex.Message}");
         }
+    }
+
+    private static void DrawFitted(XGraphics gfx, string text, XFont font, XBrush brush, XRect bounds)
+    {
+        var display = text;
+        while (display.Length > 0 && gfx.MeasureString(display, font).Width > bounds.Width)
+            display = display[..^1];
+        if (display != text)
+        {
+            while (display.Length > 0 && gfx.MeasureString(display + "...", font).Width > bounds.Width)
+                display = display[..^1];
+            display += "...";
+        }
+        gfx.DrawString(display, font, brush, bounds, XStringFormats.TopCenter);
     }
 
     public byte[] GeneratePlaceholderPdf(string title, string letterNumber, string content)
