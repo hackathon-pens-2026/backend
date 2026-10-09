@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthStore, EfAuthStore>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<AuthProvisioner>();
+        services.AddSingleton<SignIt.Modules.Templates.Services.TemplateCatalog>();
 
         services.AddOptions<StorageOptions>().Bind(configuration.GetSection("Storage"));
         services.AddSingleton<IStorageService, LocalStorageService>();
