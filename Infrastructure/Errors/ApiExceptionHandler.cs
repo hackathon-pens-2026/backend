@@ -26,7 +26,7 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             _ => (500, "internal_error", "Terjadi kesalahan internal.")
         };
         if (status >= 500)
-            logger.LogError("API gagal: {ErrorCode}, {ExceptionType}, trace {TraceId}.", code, exception.GetType().Name, context.TraceIdentifier);
+            logger.LogError(exception, "API gagal: {ErrorCode}, {ExceptionType}, trace {TraceId}.", code, exception.GetType().Name, context.TraceIdentifier);
         if (status == 401) context.Response.Headers.WWWAuthenticate = "Bearer";
         await ApiProblems.WriteAsync(context, status, code, message);
         return true;
