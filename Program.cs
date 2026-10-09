@@ -10,9 +10,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using SignIt.Infrastructure;
+using SignIt.Infrastructure.Configuration;
 using SignIt.Infrastructure.Errors;
 using SignIt.Modules.Authentication.Data;
 using SignIt.Modules.Authentication.Services;
+
+DotEnv.Load(Path.Combine(Directory.GetCurrentDirectory(), ".env"));
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
