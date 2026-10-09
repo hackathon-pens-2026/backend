@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SignIt.Infrastructure.Email;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
 using SignIt.Modules.Authentication.Models;
+using SignIt.Modules.Email.Services;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Signatures.DTOs;
 using SignIt.Modules.Signatures.Models;
@@ -52,7 +54,9 @@ public sealed class SignatureWorkflowAndVerificationTests
 
         var pdfOverlay = new PdfSharpOverlayService();
         var wfLogger = NullLogger<SignatureWorkflowService>.Instance;
-        var workflow = new SignatureWorkflowService(db, qrService, qrGen, pdfOverlay, storage, clock, wfLogger, new WorkflowTaskAccess(db, clock));
+        var emails = new WorkflowEmailService(db, new ResetEmailOptions { AppBaseUrl = "https://app.signit.test" }, clock);
+        var workflow = new SignatureWorkflowService(db, qrService, qrGen, pdfOverlay, storage, clock, wfLogger,
+            new WorkflowTaskAccess(db, clock), emails, new WorkflowOptions());
         var verify = new PublicVerificationService(db);
 
         return (db, storage, workflow, verify, qrService);
@@ -288,7 +292,9 @@ public sealed class SignatureWorkflowAndVerificationTests
         SeedAssignments(db);
         await db.SaveChangesAsync();
 
-        var decisions = new WorkflowService(db, new WorkflowTaskAccess(db, new FixedTimeProvider(Now)), new FixedTimeProvider(Now));
+        var decisions = new WorkflowService(db, new WorkflowTaskAccess(db, new FixedTimeProvider(Now)),
+            new WorkflowEmailService(db, new ResetEmailOptions { AppBaseUrl = "https://app.signit.test" }, new FixedTimeProvider(Now)),
+            new FixedTimeProvider(Now));
         await decisions.MutateAsync(user.Id, task.Id, "reject", new(rev.Id, rev.ContentHash, task.RowVersion, "Anggaran tidak rasional"), "reject-1", default);
 
         var updatedTask = await db.WorkflowTasks.FindAsync(task.Id);

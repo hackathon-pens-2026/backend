@@ -23,6 +23,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ResetEmailBudget> EmailBudgets => Set<ResetEmailBudget>();
     public DbSet<EmailProviderEvent> EmailProviderEvents => Set<EmailProviderEvent>();
     public DbSet<EmailSuppression> EmailSuppressions => Set<EmailSuppression>();
+    public DbSet<EmailDelivery> EmailDeliveries => Set<EmailDelivery>();
 
     public DbSet<UserSignatureQr> SignatureQrs => Set<UserSignatureQr>();
     public DbSet<SignatureEvidence> SignatureEvidences => Set<SignatureEvidence>();
@@ -182,6 +183,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         suppressions.Property(x => x.Reason).HasMaxLength(80);
         suppressions.Property(x => x.Source).HasMaxLength(30);
         suppressions.HasIndex(x => x.Email).IsUnique();
+
+        var deliveries = model.Entity<EmailDelivery>();
+        deliveries.ToTable("email_deliveries", t =>
+            t.HasCheckConstraint("ck_email_delivery_status",
+                "\"Status\" IN ('Queued','QuotaDeferred','Accepted','Failed','Unknown','Cancelled','Suppressed')"));
+        deliveries.HasKey(x => x.Id);
+        deliveries.Property(x => x.EventType).HasMaxLength(80);
+        deliveries.Property(x => x.DeduplicationKey).HasMaxLength(200);
+        deliveries.Property(x => x.RecipientEmailSnapshot).HasMaxLength(254);
+        deliveries.Property(x => x.TemplateVersion).HasMaxLength(20);
+        deliveries.Property(x => x.Subject).HasMaxLength(200);
+        deliveries.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        deliveries.Property(x => x.ProviderMessageId).HasMaxLength(150);
+        deliveries.Property(x => x.LastErrorCode).HasMaxLength(100);
+        deliveries.Property(x => x.Version).IsConcurrencyToken();
+        deliveries.HasIndex(x => x.DeduplicationKey).IsUnique();
+        deliveries.HasIndex(x => new { x.Status, x.NextAttemptAt });
+        deliveries.HasIndex(x => x.RelatedTaskId);
+        deliveries.HasOne<User>().WithMany().HasForeignKey(x => x.RecipientUserId).OnDelete(DeleteBehavior.Restrict);
+        deliveries.HasOne<LetterRequest>().WithMany().HasForeignKey(x => x.LetterRequestId).OnDelete(DeleteBehavior.Restrict);
 
         var qrs = model.Entity<UserSignatureQr>();
         qrs.ToTable("sig_user_qrs", t =>

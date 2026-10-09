@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using SignIt.Infrastructure.Email;
 using SignIt.Infrastructure.Storage;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Modules.Authentication.Models;
+using SignIt.Modules.Email.Services;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Letters.Services;
 using SignIt.Modules.Signatures.DTOs;
@@ -62,7 +64,8 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
     private static ISignatureWorkflowService IsolatedSignatureWorkflow(IServiceProvider services, bool fail = false) => new SignatureWorkflowService(
         services.GetRequiredService<AppDbContext>(), services.GetRequiredService<IUserSignatureQrService>(), services.GetRequiredService<IQrCodeGenerator>(),
         new WorkflowTestPdfAdapter(fail), services.GetRequiredService<IStorageService>(), TimeProvider.System,
-        NullLogger<SignatureWorkflowService>.Instance, services.GetRequiredService<WorkflowTaskAccess>());
+        NullLogger<SignatureWorkflowService>.Instance, services.GetRequiredService<WorkflowTaskAccess>(),
+        services.GetRequiredService<WorkflowEmailService>(), services.GetRequiredService<WorkflowOptions>());
 
     [PostgresPreviewTheory]
     [InlineData("proposal", null, 5)]

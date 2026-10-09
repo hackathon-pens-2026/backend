@@ -6,10 +6,12 @@ using PdfSharp.Pdf.IO;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
+using SignIt.Modules.Email.Services;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Routing.Services;
 using SignIt.Modules.Templates.Services;
 using SignIt.Modules.Workflow.Models;
+using SignIt.Modules.Workflow.Services;
 
 namespace SignIt.Modules.Letters.Services;
 
@@ -20,7 +22,8 @@ public sealed record SubmitLetterRequest(Guid ExpectedVersion, Guid ExpectedRevi
 public sealed record SubmissionDto(Guid LetterId, Guid RevisionId, string Number, LetterStatus Status);
 
 public sealed class LetterSubmissionService(AppDbContext db, RoutingService routing, TemplateCatalog templates,
-    IStorageService storage, TimeProvider clock, LetterPreviewService previews)
+    IStorageService storage, TimeProvider clock, LetterPreviewService previews, WorkflowEmailService emails,
+    WorkflowOptions workflow)
 {
     public async Task<SubmissionDto> SubmitAsync(Guid actor, Guid id, SubmitLetterRequest request, string key, CancellationToken ct)
     {
@@ -73,6 +76,8 @@ public sealed class LetterSubmissionService(AppDbContext db, RoutingService rout
             renderedInput.Layout.RendererVersion, PreviewJobId = job.Id, PolicyVersion = "2026-10-09" });
         var revision = LetterRevision.Create(Guid.NewGuid(), id, draft.RevisionNo + 1, draft.TemplateVersionId, snapshot, Hash(snapshot), review.Id, now);
         db.LetterRevisions.Add(revision);
+        WorkflowTask? firstTask = null;
+        var dueAt = now.AddDays(workflow.SlaDays);
         foreach (var stage in stages)
         {
             var slot = request.Slots.Single(x => x.PositionCode == stage.PositionCode);
@@ -80,12 +85,22 @@ public sealed class LetterSubmissionService(AppDbContext db, RoutingService rout
                 stage.Order == 1 ? LetterRole.Applicant : stage.Order == 2 ? LetterRole.ClosingSignatory : LetterRole.ApprovingSignatory,
                 stage.PositionCode, stage.UserId, stage.Name, stage.PositionName, true, slot.PageIndex, slot.X, slot.Y, slot.Width, slot.Height);
             db.LetterParticipants.Add(participant);
+            var isFirst = stage.Order == 1;
             var task = WorkflowTask.Create(Guid.NewGuid(), revision.Id, participant.Id, stage.Order,
-                stage.Order <= 2 ? WorkflowActionType.Sign : WorkflowActionType.ApproveAndSign, stage.UserId, stage.PositionCode);
-            if (stage.Order == 1) task.Activate(now);
+                stage.Order <= 2 ? WorkflowActionType.Sign : WorkflowActionType.ApproveAndSign, stage.UserId,
+                stage.PositionCode, isFirst ? WorkflowTaskStatus.Active : WorkflowTaskStatus.Pending,
+                isFirst ? now : null, dueAt);
+            if (isFirst) firstTask = task;
             db.WorkflowTasks.Add(task);
         }
         letter.SetCurrentRevision(revision.Id);
+        var submitterUser = await db.Users.AsNoTracking().SingleAsync(x => x.Id == actor, ct);
+        await emails.EnqueueSubmittedAsync(letter, submitterUser, ct);
+        if (firstTask != null)
+        {
+            var firstAssignee = await db.Users.AsNoTracking().SingleAsync(x => x.Id == firstTask.AssignedUserId, ct);
+            await emails.EnqueueTaskActiveAsync(firstTask, letter, firstAssignee, ct);
+        }
         letter.Submit(request.OrganizationId, letter.Status == LetterStatus.NeedsRevision ? letter.Number : $"SGN-{id:N}", now);
         db.AuditLogs.Add(AuditLog.Record(actor, "letter.submitted", "LetterRequest", id, revision.Id, now, correlation, fingerprint));
         await db.SaveChangesAsync(ct);

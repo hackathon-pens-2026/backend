@@ -6,6 +6,7 @@ using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
 using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Email.Services;
 using SignIt.Modules.Rooms.Services;
 using SignIt.Modules.Signatures.DTOs;
 using SignIt.Modules.Signatures.Models;
@@ -26,6 +27,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
     private readonly TimeProvider _clock;
     private readonly ILogger<SignatureWorkflowService> _logger;
     private readonly WorkflowTaskAccess _access;
+    private readonly WorkflowEmailService _emails;
+    private readonly WorkflowOptions _workflow;
 
     public SignatureWorkflowService(
         AppDbContext db,
@@ -36,6 +39,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         TimeProvider clock,
         ILogger<SignatureWorkflowService> logger,
         WorkflowTaskAccess access,
+        WorkflowEmailService emails,
+        WorkflowOptions workflow,
         RoomReservationService? roomReservations = null)
     {
         _db = db;
@@ -46,6 +51,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         _clock = clock;
         _logger = logger;
         _access = access;
+        _emails = emails;
+        _workflow = workflow;
         _roomReservations = roomReservations;
     }
 
@@ -145,6 +152,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         _db.AuditLogs.Add(AuditLog.Record(actorUserId, $"workflow.{status.ToString().ToLowerInvariant()}",
             "WorkflowTask", currentTask.Id, revision.Id, now, Guid.NewGuid().ToString("N"),
             $"Actor {actor.Id}; mandat {delegation?.Id}", ipAddress, userAgent));
+        // Tugas selesai: hentikan reminder yang masih menunggu.
+        await _emails.CancelQueuedRemindersAsync(currentTask.Id, ct);
 
         var allTasks = await _db.WorkflowTasks
             .Where(x => x.RevisionId == revision.Id)
@@ -152,10 +161,12 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         var next = allTasks.FirstOrDefault(x => !WorkflowTaskAccess.IsDone(x.Status));
         if (next?.Status == WorkflowTaskStatus.Pending)
         {
-            next.Activate(now);
+            next.Activate(now, now.AddDays(_workflow.SlaDays));
             _db.AuditLogs.Add(AuditLog.Record(null, "task.activated", "WorkflowTask", next.Id,
                 revision.Id, now, Guid.NewGuid().ToString("N"),
                 $"Tugas berikutnya diaktifkan: Order {next.Order} untuk user {next.AssignedUserId}"));
+            var nextUser = await _db.Users.AsNoTracking().SingleAsync(x => x.Id == next.AssignedUserId, ct);
+            await _emails.EnqueueTaskActiveAsync(next, letterRequest, nextUser, ct);
         }
 
         // The finalizer must query the just-written evidence.
@@ -306,6 +317,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
             _db.AuditLogs.Add(AuditLog.Record(null, "letter.completed", "LetterRequest", letterRequest.Id,
                 revision.Id, now, Guid.NewGuid().ToString("N"),
                 $"Surat selesai dengan kode verifikasi {verificationCode} dan SHA-256 {finalHash}"));
+            var submitter = await _db.Users.AsNoTracking().SingleAsync(x => x.Id == letterRequest.SubmittedByUserId, ct);
+            await _emails.EnqueueCompletedAsync(letterRequest, submitter, ct);
             _logger.LogInformation("Letter {LetterId} finalized successfully. Code: {VerificationCode}",
                 letterRequest.Id, verificationCode);
             return verificationCode;
