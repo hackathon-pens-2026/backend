@@ -14,6 +14,7 @@ Implementasi auth akun internal mengikuti `../SignIt-PRD.md` v2.6. Tidak ada reg
 - `Infrastructure/Email`: adapter Resend, proteksi payload dan worker email reset.
 - `Infrastructure/Errors`: pemetaan error HTTP bersama.
 - `Modules/Letters`, `Templates`, `Workflow`, `Signatures`, `Rooms`, `Inventory`, `Chat`, serta `Infrastructure/Storage` dan `Llm`: direktori disiapkan, belum ada implementasi fitur.
+- `Modules/Email`: model event provider, suppression alamat, verifikasi signature Svix dan endpoint webhook Resend.
 - `tests/SignIt.Auth.Tests`: pengujian domain yang disiapkan, **belum dijalankan**.
 - `Dockerfile` dan `.dockerignore`: image multi-stage .NET 10 (runtime `10.0`), entrypoint `SignIt.Api.dll`.
 
@@ -32,6 +33,7 @@ Struktur modular satu proyek ini mengikuti permintaan terbaru, menggantikan pemi
 | GET | `/me/capabilities` | Bearer token → kategori/surface/capabilities/assignment |
 | POST | `/auth/forgot-password` | `{ "email" }` → 202 dengan pesan netral |
 | POST | `/auth/reset-password` | `{ "token", "newPassword" }` → mengganti password dan mencabut seluruh sesi |
+| POST | `/webhooks/resend` | Webhook provider: verifikasi signature raw body, dedup event, suppression bounce/complaint |
 
 Respons menggunakan camelCase dan enum string. Contoh login/refresh:
 
@@ -80,6 +82,8 @@ Restore/build tidak membutuhkan database atau secret. API/provisioning membutuhk
 | `Email__From`, `Email__ReplyTo`, `Resend__ApiKey` | Pengirim terverifikasi, mailbox bantuan, secret API key |
 | `Email__SandboxMode`, `Email__RecipientAllowlist__0` | Sandbox default aktif; non-production wajib sandbox |
 | `Email__DailyBudget`, `Email__MonthlyBudget` | Alokasi budget pengiriman, sesuaikan kuota akun dan pengirim lain |
+| `Resend__WebhookSecret` | Secret `whsec_...` untuk verifikasi signature webhook; kosong membuat endpoint mengembalikan 503 |
+| `Resend__WebhookToleranceSeconds` | Toleransi timestamp signature (default 300 detik) |
 
 User-secrets development juga didukung. Contoh aman (ganti placeholder **secara lokal**, jangan commit secret):
 
@@ -140,6 +144,14 @@ Payload token pada outbox dienkripsi menggunakan Data Protection dan dibersihkan
 
 Tautan email memakai `#token=...`, sehingga token tidak masuk query/log server/referrer. Halaman frontend harus membaca fragment, segera membersihkan URL, dan hanya mengirim token lewat body POST setelah user memilih password baru. Kunjungan GET/email scanner tidak mengubah password. Matikan open/click tracking di pengaturan Resend untuk email transaksi.
 
+## Webhook status pengiriman (Resend)
+
+- `POST /api/v1/webhooks/resend` menerima event provider tanpa login pengguna. Signature Svix diverifikasi dari raw body + timestamp (toleransi default 300 detik); permintaan tanpa signature sah ditolak 401 dan secret yang belum dikonfigurasi menghasilkan 503.
+- Event disimpan per provider + event ID (`email_provider_events`) dengan unique constraint sehingga replay tidak menggandakan efek; event duplikat dijawab 200 `duplicate`.
+- `email.bounced` (kecuali transient) dan `email.complained` menambahkan alamat ke `email_suppressions`; event dan suppression ditulis dalam satu transaksi agar retry tidak kehilangan suppression.
+- Worker reset email berhenti mengirim ke alamat tersuppressed (`recipient_suppressed`, tanpa retry).
+- `Accepted`/`Delivered` tetap bukan bukti email dibaca; status pengiriman terpisah dari status workflow surat.
+
 ## Verifikasi yang telah dilakukan
 
 - `dotnet restore backend.csproj` dan restore proyek test: berhasil.
@@ -152,3 +164,9 @@ Tautan email memakai `#token=...`, sehingga token tidak masuk query/log server/r
 - `Microsoft.OpenApi` 2.12.2 memuat perbaikan advisory `GHSA-v5pm-xwqc-g5wc`.
 
 Sesuai permintaan, **tidak menjalankan `dotnet test`, API, provisioning, migration update, request endpoint, atau pengiriman email**. Database belum tersedia. Login lintas akun, concurrency refresh/reset/lockout, migration PostgreSQL, pemulihan key ring, Resend dan alur BFF/CORS/CSRF tetap perlu diuji setelah layanan tersedia; build saja bukan bukti siap rilis.
+
+### Email webhook (lanjutan)
+
+- Unit tests `tests/SignIt.Email.Tests`: 13/13 lulus (signature Svix valid/tampered/expired/multi-signature, dedup event, suppression bounce permanent/complaint, bounce transient tidak men-suppress, payload invalid).
+- Verifikasi live terhadap API: event valid → 200 `processed`; event ID sama → 200 `duplicate`; signature salah → 401; `email.bounced` permanent dan `email.complained` membuat baris `email_suppressions`; bounce transient tidak. Data uji dibersihkan dari database development.
+- Migration `AddEmailWebhookEvents` diterapkan ke PostgreSQL development; `has-pending-model-changes` bersih.
