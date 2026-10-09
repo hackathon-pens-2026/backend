@@ -37,9 +37,7 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         var bytes = await _storage.ReadBytesAsync(entity.PrivateStorageKey, ct);
         if (bytes == null || bytes.Length == 0)
         {
-            // Recover missing file from storage by regenerating with the same opaque code
-            bytes = _qrGenerator.GeneratePng($"signit:sig:{entity.OpaqueCode}", pixelsPerModule: 12);
-            await _storage.SaveAsync(entity.PrivateStorageKey, bytes, "image/png", ct);
+            throw MissingAsset();
         }
 
         var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
@@ -64,8 +62,7 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         var bytes = await _storage.ReadBytesAsync(entity.PrivateStorageKey, ct);
         if (bytes == null || bytes.Length == 0)
         {
-            bytes = _qrGenerator.GeneratePng($"signit:sig:{entity.OpaqueCode}", pixelsPerModule: 12);
-            await _storage.SaveAsync(entity.PrivateStorageKey, bytes, "image/png", ct);
+            throw MissingAsset();
         }
 
         var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
@@ -85,8 +82,7 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         var bytes = await _storage.ReadBytesAsync(entity.PrivateStorageKey, ct);
         if (bytes == null || bytes.Length == 0)
         {
-            bytes = _qrGenerator.GeneratePng($"signit:sig:{entity.OpaqueCode}", pixelsPerModule: 12);
-            await _storage.SaveAsync(entity.PrivateStorageKey, bytes, "image/png", ct);
+            throw MissingAsset();
         }
 
         return (bytes, "image/png", entity.ImageSha256);
@@ -97,7 +93,13 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         var existing = await _db.SignatureQrs
             .SingleOrDefaultAsync(x => x.OwnerUserId == userId && x.Status == SignatureQrStatus.Active, ct);
 
-        if (existing != null) return existing;
+        if (existing != null)
+        {
+            var image = await _storage.ReadBytesAsync(existing.PrivateStorageKey, ct);
+            if (image == null || !string.Equals(_qrGenerator.ComputeSha256(image), existing.ImageSha256, StringComparison.OrdinalIgnoreCase))
+                throw MissingAsset();
+            return existing;
+        }
 
         var user = await _db.Users.SingleOrDefaultAsync(x => x.Id == userId, ct);
         if (user == null)
@@ -107,7 +109,7 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         var payload = $"signit:sig:{opaqueCode}";
         var qrBytes = _qrGenerator.GeneratePng(payload, pixelsPerModule: 12);
         var hash = _qrGenerator.ComputeSha256(qrBytes);
-        var storageKey = $"signatures/users/{userId}/qr-v1.png";
+        var storageKey = $"signatures/users/{userId}/{opaqueCode}/qr-v1.png";
         var now = _clock.GetUtcNow();
 
         await _storage.SaveAsync(storageKey, qrBytes, "image/png", ct);
@@ -126,17 +128,21 @@ public sealed class UserSignatureQrService : IUserSignatureQrService
         try
         {
             await _db.SaveChangesAsync(ct);
-            _logger.LogInformation("Generated user signature QR for User {UserId}, Code {OpaqueCode}.", userId, opaqueCode);
+            _logger.LogInformation("Generated user signature QR for User {UserId}.", userId);
             return qr;
         }
         catch (DbUpdateException)
         {
             // In case of concurrent race condition, return the existing active entity
-            _db.ChangeTracker.Clear();
+            _db.Entry(qr).State = EntityState.Detached;
             var concurrent = await _db.SignatureQrs
                 .SingleOrDefaultAsync(x => x.OwnerUserId == userId && x.Status == SignatureQrStatus.Active, ct);
             if (concurrent != null) return concurrent;
             throw;
         }
     }
+
+    private static SignItDomainException MissingAsset() => new(
+        DomainErrorKind.ProcessingFailed, "signature_asset_invalid",
+        "Aset QR tidak tersedia atau rusak. Hubungi tim untuk pemulihan aset tanda tangan.");
 }

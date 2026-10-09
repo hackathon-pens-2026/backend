@@ -132,6 +132,10 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         if (letterRequest == null)
             throw new SignItDomainException(DomainErrorKind.NotFound, "letter_request_not_found", "Pengajuan surat tidak ditemukan.");
 
+        if (letterRequest.CurrentRevisionId != revision.Id || letterRequest.Status != LetterStatus.InProgress)
+            throw new SignItDomainException(DomainErrorKind.Conflict, "inactive_letter_revision",
+                "Revisi ini tidak lagi aktif untuk ditandatangani. Muat ulang pengajuan surat.");
+
         // 5. Retrieve or Lazy-provision Actor's QR
         var actorQr = await _qrService.EnsureActiveEntityAsync(actorUserId, ct);
 
@@ -246,8 +250,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         else
         {
             // All mandatory tasks completed! Finalize document.
-            isWorkflowCompleted = true;
             verificationCode = await FinalizeDocumentInternalAsync(letterRequest, revision, ct);
+            isWorkflowCompleted = letterRequest.Status == LetterStatus.Completed;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -398,11 +402,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
 
             if (basePdfBytes == null || basePdfBytes.Length == 0)
             {
-                // Generate clean base placeholder
-                basePdfBytes = _pdfOverlay.GeneratePlaceholderPdf(
-                    letterRequest.Title,
-                    letterRequest.Number,
-                    $"Pengajuan Surat: {letterRequest.Title}\nNomor: {letterRequest.Number}\nStatus: Selesai");
+                throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "review_document_missing",
+                    "Dokumen yang telah ditinjau tidak tersedia. Pulihkan dokumen sebelum mencoba finalisasi kembali.");
             }
 
             // 2. Load participants and completed evidences
@@ -418,7 +419,9 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
 
             foreach (var participant in participants)
             {
-                var evidence = evidences.FirstOrDefault(x => x.ActorId == participant.UserId);
+                var participantTask = await _db.WorkflowTasks.SingleOrDefaultAsync(
+                    x => x.RevisionId == revision.Id && x.ParticipantId == participant.Id, ct);
+                var evidence = participantTask == null ? null : evidences.SingleOrDefault(x => x.TaskId == participantTask.Id);
                 byte[]? qrBytes = null;
 
                 if (evidence != null)
@@ -426,9 +429,16 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
                     var qr = await _db.SignatureQrs.SingleOrDefaultAsync(x => x.Id == evidence.QrAssetId, ct);
                     if (qr != null)
                     {
-                        qrBytes = _qrGenerator.GenerateBmp($"signit:sig:{qr.OpaqueCode}", pixelsPerModule: 10);
+                        qrBytes = await _storage.ReadBytesAsync(qr.PrivateStorageKey, ct);
+                        if (qrBytes == null || !string.Equals(_qrGenerator.ComputeSha256(qrBytes), evidence.QrHash, StringComparison.OrdinalIgnoreCase))
+                            throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_asset_invalid",
+                                "Snapshot aset tanda tangan tidak tersedia atau telah berubah.");
                     }
                 }
+
+                if (evidence == null || qrBytes == null)
+                    throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_evidence_missing",
+                        "Bukti tanda tangan peserta belum lengkap.");
 
                 overlayItems.Add(new PdfSignatureOverlayItem(
                     participant.PageIndex,
