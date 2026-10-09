@@ -6,10 +6,12 @@ using SignIt.Modules.Authentication.Services;
 using SignIt.Modules.Authentication.Models;
 using SignIt.Infrastructure.Persistence;
 
+using SignIt.Modules.Signatures.Services;
+
 namespace SignIt.Modules.Authentication.Data;
 
 // Invoked explicitly from the CLI, never from an HTTP endpoint or application startup.
-public sealed class AuthProvisioner(AppDbContext db, IPasswordService passwords, AuthOptions options, TimeProvider clock)
+public sealed class AuthProvisioner(AppDbContext db, IPasswordService passwords, AuthOptions options, TimeProvider clock, IUserSignatureQrService qrService)
 {
     public async Task<int> ProvisionAsync(string path, CancellationToken ct)
     {
@@ -78,6 +80,12 @@ public sealed class AuthProvisioner(AppDbContext db, IPasswordService passwords,
         }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+
+        foreach (var account in manifest.Users)
+        {
+            await qrService.GetOrCreateForUserAsync(account.Id, ct);
+        }
+
         return created;
     }
 

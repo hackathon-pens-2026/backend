@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using SignIt.Modules.Authentication.Models;
+using SignIt.Modules.Signatures.Models;
+using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Workflow.Models;
 
 namespace SignIt.Infrastructure.Persistence;
 
@@ -13,6 +16,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<PasswordResetEmail> ResetEmails => Set<PasswordResetEmail>();
     public DbSet<AuthAudit> Audits => Set<AuthAudit>();
     public DbSet<ResetEmailBudget> EmailBudgets => Set<ResetEmailBudget>();
+
+    public DbSet<UserSignatureQr> SignatureQrs => Set<UserSignatureQr>();
+    public DbSet<SignatureEvidence> SignatureEvidences => Set<SignatureEvidence>();
+    public DbSet<SigningAttempt> SigningAttempts => Set<SigningAttempt>();
+    public DbSet<VerificationRecord> VerificationRecords => Set<VerificationRecord>();
+    public DbSet<LetterRequest> LetterRequests => Set<LetterRequest>();
+    public DbSet<LetterRevision> LetterRevisions => Set<LetterRevision>();
+    public DbSet<LetterParticipant> LetterParticipants => Set<LetterParticipant>();
+    public DbSet<WorkflowTask> WorkflowTasks => Set<WorkflowTask>();
+    public DbSet<Delegation> Delegations => Set<Delegation>();
+    public DbSet<Document> Documents => Set<Document>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -104,5 +119,148 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         budgets.HasKey(x => x.Id);
         budgets.Property(x => x.Id).ValueGeneratedNever();
         budgets.Property(x => x.Version).IsConcurrencyToken();
+
+        var qrs = model.Entity<UserSignatureQr>();
+        qrs.ToTable("sig_user_qrs", t =>
+        {
+            t.HasCheckConstraint("ck_sig_qr_status", "\"Status\" IN ('Active','Rotated','Revoked')");
+            t.HasCheckConstraint("ck_sig_qr_version", "\"Version\" >= 1");
+        });
+        qrs.HasKey(x => x.Id);
+        qrs.Property(x => x.OpaqueCode).HasMaxLength(100);
+        qrs.Property(x => x.PrivateStorageKey).HasMaxLength(260);
+        qrs.Property(x => x.ImageSha256).HasMaxLength(64);
+        qrs.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        qrs.HasIndex(x => x.OpaqueCode).IsUnique();
+        qrs.HasIndex(x => new { x.OwnerUserId, x.Version }).IsUnique();
+        qrs.HasIndex(x => x.OwnerUserId).HasFilter("\"Status\" = 'Active'").IsUnique();
+        qrs.HasOne<User>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Restrict);
+
+        var evidences = model.Entity<SignatureEvidence>();
+        evidences.ToTable("sig_evidences");
+        evidences.HasKey(x => x.Id);
+        evidences.Property(x => x.Role).HasMaxLength(100);
+        evidences.Property(x => x.PositionSnapshot).HasMaxLength(150);
+        evidences.Property(x => x.ContentHash).HasMaxLength(64);
+        evidences.Property(x => x.QrHash).HasMaxLength(64);
+        evidences.Property(x => x.MandateDescription).HasMaxLength(200);
+        evidences.Property(x => x.IpAddress).HasMaxLength(45);
+        evidences.Property(x => x.UserAgent).HasMaxLength(512);
+        evidences.HasIndex(x => x.TaskId).IsUnique();
+        evidences.HasIndex(x => x.RevisionId);
+        evidences.HasIndex(x => x.ActorId);
+        evidences.HasOne<User>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.Restrict);
+        evidences.HasOne<UserSignatureQr>().WithMany().HasForeignKey(x => x.QrAssetId).OnDelete(DeleteBehavior.Restrict);
+
+        var attempts = model.Entity<SigningAttempt>();
+        attempts.ToTable("sig_signing_attempts");
+        attempts.HasKey(x => x.Id);
+        attempts.Property(x => x.QrHash).HasMaxLength(64);
+        attempts.Property(x => x.ContentHash).HasMaxLength(64);
+        attempts.Property(x => x.Status).HasMaxLength(30);
+        attempts.Property(x => x.IdempotencyKey).HasMaxLength(100);
+        attempts.HasIndex(x => new { x.TaskId, x.ActorId, x.IdempotencyKey });
+
+        var verifications = model.Entity<VerificationRecord>();
+        verifications.ToTable("sig_verification_records", t =>
+        {
+            t.HasCheckConstraint("ck_sig_verification_status", "\"Status\" IN ('Valid','Revoked')");
+        });
+        verifications.HasKey(x => x.Id);
+        verifications.Property(x => x.RandomCode).HasMaxLength(50);
+        verifications.Property(x => x.FinalHash).HasMaxLength(64);
+        verifications.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        verifications.Property(x => x.RevocationReason).HasMaxLength(500);
+        verifications.HasIndex(x => x.RandomCode).IsUnique();
+        verifications.HasIndex(x => x.FinalHash);
+
+        var letterRequests = model.Entity<LetterRequest>();
+        letterRequests.ToTable("letter_requests", t =>
+        {
+            t.HasCheckConstraint("ck_letter_request_status", "\"Status\" IN ('Draft','InProgress','NeedsRevision','AwaitingResourceResolution','Finalizing','ProcessingFailed','Completed','Rejected','Cancelled','Revoked')");
+        });
+        letterRequests.HasKey(x => x.Id);
+        letterRequests.Property(x => x.Number).HasMaxLength(80);
+        letterRequests.Property(x => x.TypeId).HasMaxLength(80);
+        letterRequests.Property(x => x.Title).HasMaxLength(300);
+        letterRequests.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        letterRequests.Property(x => x.RowVersion).IsConcurrencyToken();
+        letterRequests.HasIndex(x => x.Number).IsUnique();
+        letterRequests.HasIndex(x => new { x.SubmittedByUserId, x.Status });
+        letterRequests.HasOne<User>().WithMany().HasForeignKey(x => x.SubmittedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+        var revisions = model.Entity<LetterRevision>();
+        revisions.ToTable("letter_revisions");
+        revisions.HasKey(x => x.Id);
+        revisions.Property(x => x.TemplateVersionId).HasMaxLength(80);
+        revisions.Property(x => x.ContentHash).HasMaxLength(64);
+        revisions.HasIndex(x => new { x.RequestId, x.RevisionNo }).IsUnique();
+        revisions.HasOne<LetterRequest>().WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Restrict);
+
+        var participants = model.Entity<LetterParticipant>();
+        participants.ToTable("letter_participants", t =>
+        {
+            t.HasCheckConstraint("ck_letter_participant_role", "\"Role\" IN ('Applicant','ClosingSignatory','AcknowledgingSignatory','ApprovingSignatory')");
+        });
+        participants.HasKey(x => x.Id);
+        participants.Property(x => x.Role).HasConversion<string>().HasMaxLength(30);
+        participants.Property(x => x.SlotKey).HasMaxLength(80);
+        participants.Property(x => x.DisplayNameSnapshot).HasMaxLength(150);
+        participants.Property(x => x.PositionSnapshot).HasMaxLength(150);
+        participants.HasIndex(x => new { x.RevisionId, x.UserId });
+        participants.HasOne<LetterRevision>().WithMany().HasForeignKey(x => x.RevisionId).OnDelete(DeleteBehavior.Cascade);
+        participants.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        var tasks = model.Entity<WorkflowTask>();
+        tasks.ToTable("wf_tasks", t =>
+        {
+            t.HasCheckConstraint("ck_wf_task_action", "\"ActionType\" IN ('Sign','Acknowledge','ApproveAndSign','Review')");
+            t.HasCheckConstraint("ck_wf_task_status", "\"Status\" IN ('Pending','Active','Signed','Acknowledged','Approved','RevisionRequested','Rejected','Deferred','Cancelled','Superseded')");
+        });
+        tasks.HasKey(x => x.Id);
+        tasks.Property(x => x.ActionType).HasConversion<string>().HasMaxLength(30);
+        tasks.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        tasks.Property(x => x.DomainCode).HasMaxLength(80);
+        tasks.Property(x => x.Comment).HasMaxLength(1000);
+        tasks.Property(x => x.RowVersion).IsConcurrencyToken();
+        tasks.HasIndex(x => new { x.RevisionId, x.Order });
+        tasks.HasIndex(x => new { x.AssignedUserId, x.Status, x.ActivatedAt });
+        tasks.HasOne<LetterRevision>().WithMany().HasForeignKey(x => x.RevisionId).OnDelete(DeleteBehavior.Cascade);
+        tasks.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedUserId).OnDelete(DeleteBehavior.Restrict);
+
+        var delegations = model.Entity<Delegation>();
+        delegations.ToTable("wf_delegations");
+        delegations.HasKey(x => x.Id);
+        delegations.Property(x => x.Scope).HasMaxLength(200);
+        delegations.Property(x => x.Reason).HasMaxLength(500);
+        delegations.HasIndex(x => new { x.FromUserId, x.ToUserId, x.IsActive });
+        delegations.HasOne<User>().WithMany().HasForeignKey(x => x.FromUserId).OnDelete(DeleteBehavior.Restrict);
+        delegations.HasOne<User>().WithMany().HasForeignKey(x => x.ToUserId).OnDelete(DeleteBehavior.Restrict);
+
+        var documents = model.Entity<Document>();
+        documents.ToTable("doc_documents", t =>
+        {
+            t.HasCheckConstraint("ck_doc_kind", "\"Kind\" IN ('Source','Review','Final','Template')");
+        });
+        documents.HasKey(x => x.Id);
+        documents.Property(x => x.Kind).HasConversion<string>().HasMaxLength(30);
+        documents.Property(x => x.StorageKey).HasMaxLength(260);
+        documents.Property(x => x.MimeType).HasMaxLength(100);
+        documents.Property(x => x.Sha256).HasMaxLength(64);
+        documents.Property(x => x.ProcessingState).HasMaxLength(30);
+        documents.HasIndex(x => new { x.RevisionId, x.Kind });
+        documents.HasIndex(x => x.Sha256);
+
+        var auditLogs = model.Entity<AuditLog>();
+        auditLogs.ToTable("app_audit_logs");
+        auditLogs.HasKey(x => x.Id);
+        auditLogs.Property(x => x.Action).HasMaxLength(100);
+        auditLogs.Property(x => x.Entity).HasMaxLength(80);
+        auditLogs.Property(x => x.CorrelationId).HasMaxLength(100);
+        auditLogs.Property(x => x.Details).HasMaxLength(2000);
+        auditLogs.Property(x => x.IpAddress).HasMaxLength(45);
+        auditLogs.Property(x => x.UserAgent).HasMaxLength(512);
+        auditLogs.HasIndex(x => new { x.ActorUserId, x.AtUtc });
+        auditLogs.HasIndex(x => new { x.Entity, x.EntityId });
     }
 }
