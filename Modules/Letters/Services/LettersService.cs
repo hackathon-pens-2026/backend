@@ -54,8 +54,9 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
         var template = (await templates.GetAllAsync(ct)).SingleOrDefault(x => x.TypeId == letter.TypeId)
             ?? throw new SignItDomainException(DomainErrorKind.Validation, "unsupported_letter_type", "Tipe surat tidak tersedia.");
         var allowed = template.Fields.Where(x => x.ValueSource is not ("server" or "signatureEvidence")).Select(x => x.Key).ToHashSet();
-        if (fields.Any(x => !allowed.Contains(x.Key) || x.Value == null || x.Value.Length > 4000))
-            throw new SignItDomainException(DomainErrorKind.Validation, "invalid_draft_fields", "Field tidak sesuai template atau melebihi batas.");
+        var sanitizedFields = fields
+            .Where(x => allowed.Contains(x.Key) && x.Value != null && x.Value.Length <= 4000)
+            .ToDictionary(x => x.Key, x => x.Value);
 
         var now = clock.GetUtcNow();
         if (!string.IsNullOrWhiteSpace(title) && title.Length <= 300)
@@ -64,7 +65,7 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
         }
 
         var revision = await db.LetterRevisions.SingleAsync(x => x.Id == letter.CurrentRevisionId, ct);
-        var json = JsonSerializer.Serialize(new SortedDictionary<string, string>(fields));
+        var json = JsonSerializer.Serialize(new SortedDictionary<string, string>(sanitizedFields));
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
         revision.UpdateDraftContent(json, hash, now);
         await db.SaveChangesAsync(ct);

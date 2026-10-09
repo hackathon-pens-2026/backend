@@ -239,4 +239,109 @@ public sealed class ChatDomainAndOrchestratorTests
         Assert.Contains("latency_ms=42", audit.Details);
         Assert.Contains("success=True", audit.Details);
     }
+
+    [Fact]
+    public async Task Orchestrator_ProcessTurn_SynchronizesFieldAliases_Bidirectionally()
+    {
+        var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new AppDbContext(dbOptions);
+
+        var env = new FakeHostEnvironment();
+        var templates = new TemplateCatalog(env);
+        var lettersService = new LettersService(db, templates, TimeProvider.System);
+        var roomReservationService = new RoomReservationService(db, TimeProvider.System);
+
+        var fakeLlm = new FakeLlmClient(new LlmExtractionResult(
+            Success: true,
+            AssistantMessage: "Data dicatat",
+            ExtractedFields: new() { ["nama"] = "Pelatihan Robotika Mahasiswa" },
+            DetectedLetterType: null,
+            DetectedRoom: null,
+            DetectedStartsAt: null,
+            DetectedEndsAt: null,
+            ErrorCode: null,
+            ErrorMessage: null,
+            LatencyMs: 25));
+
+        var orchestrator = new LetterChatOrchestrator(
+            db,
+            templates,
+            lettersService,
+            roomReservationService,
+            fakeLlm,
+            TimeProvider.System,
+            NullLogger<LetterChatOrchestrator>.Instance);
+
+        var session = await orchestrator.CreateOrResumeSessionAsync(
+            UserId,
+            new CreateSessionRequest(null, "peminjaman-ruangan"),
+            CancellationToken.None);
+
+        var turnResult = await orchestrator.ProcessTurnAsync(
+            UserId,
+            session.SessionId,
+            new SendChatMessageRequest("Nama Kegiatan: Pelatihan Robotika Mahasiswa", new() { ["lokasi"] = "Teater D4" }),
+            CancellationToken.None);
+
+        Assert.NotNull(turnResult);
+        Assert.Equal("Pelatihan Robotika Mahasiswa", turnResult.Fields["nama_kegiatan"]);
+        Assert.Equal("Pelatihan Robotika Mahasiswa", turnResult.Fields["nama"]);
+        Assert.Equal("Teater D4", turnResult.Fields["lokasi"]);
+        Assert.Equal("Teater D4", turnResult.Fields["ruangan_kegiatan"]);
+    }
+
+    [Fact]
+    public async Task Orchestrator_ProcessTurn_WhenRoomDetected_PopulatesIndonesianDateTime()
+    {
+        var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new AppDbContext(dbOptions);
+
+        var env = new FakeHostEnvironment();
+        var templates = new TemplateCatalog(env);
+        var lettersService = new LettersService(db, templates, TimeProvider.System);
+        var roomReservationService = new RoomReservationService(db, TimeProvider.System);
+
+        var startTime = new DateTimeOffset(2026, 10, 18, 1, 0, 0, TimeSpan.Zero); // 08:00 WIB
+        var endTime = new DateTimeOffset(2026, 10, 18, 9, 0, 0, TimeSpan.Zero);   // 16:00 WIB
+
+        var fakeLlm = new FakeLlmClient(new LlmExtractionResult(
+            Success: true,
+            AssistantMessage: "Jadwal dan ruangan terdeteksi",
+            ExtractedFields: new() { ["nama_kegiatan"] = "Workshop Cyber Security" },
+            DetectedLetterType: "peminjaman-ruangan",
+            DetectedRoom: "Ruang Teater",
+            DetectedStartsAt: startTime,
+            DetectedEndsAt: endTime,
+            ErrorCode: null,
+            ErrorMessage: null,
+            LatencyMs: 30));
+
+        var orchestrator = new LetterChatOrchestrator(
+            db,
+            templates,
+            lettersService,
+            roomReservationService,
+            fakeLlm,
+            TimeProvider.System,
+            NullLogger<LetterChatOrchestrator>.Instance);
+
+        var session = await orchestrator.CreateOrResumeSessionAsync(
+            UserId,
+            new CreateSessionRequest(null, "peminjaman-ruangan"),
+            CancellationToken.None);
+
+        var turnResult = await orchestrator.ProcessTurnAsync(
+            UserId,
+            session.SessionId,
+            new SendChatMessageRequest("Ruang Teater tanggal 18 Oktober 2026 dari jam 8 sampai 16", null),
+            CancellationToken.None);
+
+        Assert.NotNull(turnResult);
+        Assert.Contains("18 Oktober 2026", turnResult.Fields["hari_tanggal_kegiatan"]);
+        Assert.Contains("08:00 - 16:00 WIB", turnResult.Fields["waktu_kegiatan"]);
+    }
 }

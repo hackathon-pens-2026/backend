@@ -172,6 +172,7 @@ public sealed class LetterChatOrchestrator(
                     currentFields[k] = v.Trim();
                 }
             }
+            SynchronizeFieldAliases(currentFields, session.TypeId);
         }
 
         // 4. Deteksi pemilihan tipe surat jika sesi belum memiliki TypeId
@@ -188,7 +189,11 @@ public sealed class LetterChatOrchestrator(
                 if (!session.LetterRequestId.HasValue)
                 {
                     var draftTitle = $"Draf {GetLetterTypeFriendlyName(normalized)}";
-                    var createdDraft = await lettersService.CreateAsync(actor, new SaveDraftRequest(normalized, draftTitle, currentFields), ct);
+                    var allTmpls = await templates.GetAllAsync(ct);
+                    var tmpl = allTmpls.SingleOrDefault(x => x.TypeId == normalized);
+                    var allowed = tmpl?.Fields.Where(x => x.ValueSource is not ("server" or "signatureEvidence")).Select(x => x.Key).ToHashSet() ?? [];
+                    var validInitialFields = currentFields.Where(kv => allowed.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+                    var createdDraft = await lettersService.CreateAsync(actor, new SaveDraftRequest(normalized, draftTitle, validInitialFields), ct);
                     session.LinkLetterRequest(createdDraft.Id, now);
                 }
             }
@@ -238,26 +243,58 @@ public sealed class LetterChatOrchestrator(
                         }
                     }
 
-                    // Pengecekan tempat & waktu ruangan
-                    if (!string.IsNullOrWhiteSpace(llmResult.DetectedRoom) || currentFields.ContainsKey("ruangan_kegiatan"))
+                    SynchronizeFieldAliases(currentFields, session.TypeId);
+
+                    // Pengecekan tanggal dan waktu kegiatan
+                    var startsAt = llmResult.DetectedStartsAt
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("startsAt"))
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_mulai"))
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("start_time"));
+                    var endsAt = llmResult.DetectedEndsAt
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("endsAt"))
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_selesai"))
+                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("end_time"));
+
+                    if (startsAt.HasValue && endsAt.HasValue)
                     {
-                        var roomQuery = llmResult.DetectedRoom ?? currentFields.GetValueOrDefault("ruangan_kegiatan");
+                        if (!currentFields.ContainsKey("hari_tanggal_kegiatan") || string.IsNullOrWhiteSpace(currentFields["hari_tanggal_kegiatan"]))
+                        {
+                            currentFields["hari_tanggal_kegiatan"] = startsAt.Value.ToOffset(JakartaOffset).ToString("dd MMMM yyyy", new System.Globalization.CultureInfo("id-ID"));
+                        }
+                        if (!currentFields.ContainsKey("waktu_kegiatan") || string.IsNullOrWhiteSpace(currentFields["waktu_kegiatan"]))
+                        {
+                            currentFields["waktu_kegiatan"] = $"{startsAt.Value.ToOffset(JakartaOffset):HH:mm} - {endsAt.Value.ToOffset(JakartaOffset):HH:mm} WIB";
+                        }
+                    }
+
+                    // Pengecekan tempat & ketersediaan ruangan
+                    var roomQuery = llmResult.DetectedRoom
+                        ?? currentFields.GetValueOrDefault("ruangan_kegiatan")
+                        ?? currentFields.GetValueOrDefault("lokasi");
+
+                    if (!string.IsNullOrWhiteSpace(roomQuery))
+                    {
                         var matchedRoom = await FindMatchingRoomAsync(roomQuery, ct);
 
                         if (matchedRoom != null)
                         {
                             currentFields["ruangan_kegiatan"] = $"{matchedRoom.FacilityName} {matchedRoom.Code}".Trim();
-
-                            var startsAt = llmResult.DetectedStartsAt ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_mulai"));
-                            var endsAt = llmResult.DetectedEndsAt ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_selesai"));
+                            currentFields["lokasi"] = currentFields["ruangan_kegiatan"];
 
                             if (startsAt.HasValue && endsAt.HasValue && endsAt > startsAt)
                             {
-                                availability = await roomReservationService.CheckAvailabilityAsync(
-                                    matchedRoom.Id,
-                                    startsAt.Value,
-                                    endsAt.Value,
-                                    ct);
+                                try
+                                {
+                                    availability = await roomReservationService.CheckAvailabilityAsync(
+                                        matchedRoom.Id,
+                                        startsAt.Value,
+                                        endsAt.Value,
+                                        ct);
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger.LogWarning(ex, "Gagal memeriksa ketersediaan ruangan {RoomId}", matchedRoom.Id);
+                                }
                             }
                         }
                     }
@@ -461,7 +498,12 @@ public sealed class LetterChatOrchestrator(
                 && positionCodes.Contains(a.PositionCode)
                 && a.ValidFrom <= now && (a.ValidTo == null || a.ValidTo > now)
             orderby a.PositionCode, u.Name
-            select new CandidatePersonDto(u.Id, u.Name, a.PositionCode, a.PositionName))
+            select new CandidatePersonDto(
+                u.Id,
+                u.Name,
+                a.PositionCode,
+                a.PositionName,
+                u.NimNip != null ? $"NRP/NIP: {u.NimNip} · {a.PositionName}" : a.PositionName))
             .Distinct()
             .ToListAsync(ct);
     }
@@ -480,7 +522,9 @@ public sealed class LetterChatOrchestrator(
             q.Contains(r.Code.ToLowerInvariant()) ||
             r.Code.ToLowerInvariant().Contains(q) ||
             q.Contains(r.FacilityName.ToLowerInvariant()) ||
-            r.FacilityName.ToLowerInvariant().Contains(q));
+            r.FacilityName.ToLowerInvariant().Contains(q) ||
+            $"{r.FacilityName} {r.Code}".ToLowerInvariant().Contains(q) ||
+            q.Contains($"{r.FacilityName} {r.Code}".ToLowerInvariant()));
     }
 
     private static string? DetectLetterTypeFromText(string? text)
@@ -535,5 +579,52 @@ public sealed class LetterChatOrchestrator(
     {
         if (string.IsNullOrWhiteSpace(val)) return null;
         return DateTimeOffset.TryParse(val, out var parsed) ? parsed : null;
+    }
+
+    private static void SynchronizeFieldAliases(Dictionary<string, string> fields, string? typeId)
+    {
+        // nama <-> nama_kegiatan
+        Sync(fields, "nama", "nama_kegiatan");
+        Sync(fields, "nama", "perihal");
+
+        // lokasi <-> ruangan_kegiatan / tempat_kegiatan
+        Sync(fields, "lokasi", "ruangan_kegiatan");
+        Sync(fields, "lokasi", "tempat_kegiatan");
+
+        // tanggal <-> hari_tanggal_kegiatan / tanggal_kegiatan
+        Sync(fields, "tanggal", "hari_tanggal_kegiatan");
+        Sync(fields, "tanggal", "tanggal_kegiatan");
+
+        // ketua <-> nama_ketua_pelaksana / nama_pemohon_2
+        Sync(fields, "ketua", "nama_ketua_pelaksana");
+        Sync(fields, "ketua", "nama_pemohon_2");
+
+        // pembina <-> nama_pembina_ormawa / nama_mengetahui_1
+        Sync(fields, "pembina", "nama_pembina_ormawa");
+        Sync(fields, "pembina", "nama_mengetahui_1");
+
+        // jenis <-> jenis_permohonan
+        Sync(fields, "jenis", "jenis_permohonan");
+
+        // rundown <-> lampiran
+        Sync(fields, "rundown", "lampiran");
+    }
+
+    private static void Sync(Dictionary<string, string> fields, string key1, string key2)
+    {
+        if (fields.TryGetValue(key1, out var val1) && !string.IsNullOrWhiteSpace(val1))
+        {
+            if (!fields.TryGetValue(key2, out var val2) || string.IsNullOrWhiteSpace(val2))
+            {
+                fields[key2] = val1;
+            }
+        }
+        else if (fields.TryGetValue(key2, out var val2) && !string.IsNullOrWhiteSpace(val2))
+        {
+            if (!fields.TryGetValue(key1, out var val1From2) || string.IsNullOrWhiteSpace(val1From2))
+            {
+                fields[key1] = val2;
+            }
+        }
     }
 }

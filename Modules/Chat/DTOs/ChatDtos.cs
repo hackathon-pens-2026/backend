@@ -11,7 +11,7 @@ public sealed record ChatMessageDto(long Id, string From, string Text, string? W
 
 public sealed record FieldSummaryDto(int TotalRequired, int FilledRequired, IReadOnlyList<string> MissingRequiredKeys);
 
-public sealed record CandidatePersonDto(Guid UserId, string Name, string PositionCode, string PositionName);
+public sealed record CandidatePersonDto(Guid UserId, string Name, string PositionCode, string PositionName, string? Meta = null);
 
 public sealed record RoomOptionDto(Guid Id, string Code, int? Floor, Guid FacilityId, string FacilityName);
 
