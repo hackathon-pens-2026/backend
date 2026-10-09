@@ -4,7 +4,7 @@
 
 # Stage 1: Runtime Base
 # Uses Microsoft ASP.NET Core 10.0 Linux runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 # Default ASP.NET Core port in non-root user mode is 8080
 EXPOSE 8080
@@ -13,7 +13,7 @@ ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Stage 2: SDK Build & Restore
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
