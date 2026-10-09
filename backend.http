@@ -44,3 +44,68 @@ Content-Type: application/json
   "token": "{{resetToken}}",
   "newPassword": "REPLACE_WITH_NEW_LOCAL_SECRET"
 }
+
+### Current account signature QR (JSON with base64 DataUrl)
+GET {{baseUrl}}/me/signature-qr
+Authorization: Bearer {{accessToken}}
+
+### Current account signature QR (raw PNG image)
+GET {{baseUrl}}/me/signature-qr/raw
+Authorization: Bearer {{accessToken}}
+
+### Sign task with active logged-in account (idempotency key and revision hash check)
+POST {{baseUrl}}/tasks/00000000-0000-0000-0000-000000000001/sign
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Idempotency-Key: task-sign-sample-01
+
+{
+  "expectedRevisionId": "00000000-0000-0000-0000-000000000002",
+  "expectedContentHash": "REPLACE_WITH_CONTENT_HASH",
+  "comment": "Menandatangani surat tugas"
+}
+
+### Approve and sign task
+POST {{baseUrl}}/tasks/00000000-0000-0000-0000-000000000001/approve
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Idempotency-Key: task-approve-sample-01
+
+{
+  "expectedRevisionId": "00000000-0000-0000-0000-000000000002",
+  "expectedContentHash": "REPLACE_WITH_CONTENT_HASH",
+  "comment": "Menyetujui permohonan"
+}
+
+### Reject task with mandatory reason
+POST {{baseUrl}}/tasks/00000000-0000-0000-0000-000000000001/reject
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "reason": "Jadwal kegiatan bertabrakan dengan agenda lain"
+}
+
+### Request revision with mandatory reason
+POST {{baseUrl}}/tasks/00000000-0000-0000-0000-000000000001/request-revision
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "reason": "Mohon lengkapi rincian anggaran kegiatan"
+}
+
+### Public document verification by code (AllowAnonymous, safe metadata without PII)
+GET {{baseUrl}}/verify/SIG-2026-ABC123
+
+### Public document verification by file upload (AllowAnonymous, checks SHA-256 fingerprint)
+POST {{baseUrl}}/verify/upload
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="surat-final.pdf"
+Content-Type: application/pdf
+
+< ./sample.pdf
+--boundary--
+

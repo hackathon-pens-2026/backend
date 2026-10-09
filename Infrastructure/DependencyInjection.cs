@@ -10,6 +10,8 @@ using SignIt.Modules.Email.Data;
 using SignIt.Modules.Email.Services;
 using SignIt.Infrastructure.Email;
 using SignIt.Infrastructure.Persistence;
+using SignIt.Infrastructure.Storage;
+using SignIt.Modules.Signatures.Services;
 
 namespace SignIt.Infrastructure;
 
@@ -49,6 +51,15 @@ public static class DependencyInjection
         services.AddScoped<IAuthStore, EfAuthStore>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<AuthProvisioner>();
+        services.AddSingleton<SignIt.Modules.Templates.Services.TemplateCatalog>();
+
+        services.AddOptions<StorageOptions>().Bind(configuration.GetSection("Storage"));
+        services.AddSingleton<IStorageService, LocalStorageService>();
+        services.AddSingleton<IQrCodeGenerator, QRCoderGenerator>();
+        services.AddSingleton<IPdfOverlayService, PdfSharpOverlayService>();
+        services.AddScoped<IUserSignatureQrService, UserSignatureQrService>();
+        services.AddScoped<ISignatureWorkflowService, SignatureWorkflowService>();
+        services.AddScoped<IPublicVerificationService, PublicVerificationService>();
 
         services.AddOptions<ResetEmailOptions>().Bind(configuration.GetSection("Email"))
             .Validate(o => o.PollSeconds is >= 2 and <= 300 && o.MaxAttempts is >= 1 and <= 10

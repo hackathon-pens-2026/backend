@@ -21,10 +21,9 @@ WORKDIR /src
 COPY ["*.csproj", "./"]
 RUN dotnet restore
 
-# Copy remaining source code and build
+# Copy all source files before build
 COPY . .
 RUN dotnet build -c $BUILD_CONFIGURATION -o /app/build --no-restore
-
 # Stage 3: Publish
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
