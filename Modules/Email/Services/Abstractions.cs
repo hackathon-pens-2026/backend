@@ -1,3 +1,4 @@
+using SignIt.Modules.Authentication.Services;
 using SignIt.Modules.Email.Models;
 
 namespace SignIt.Modules.Email.Services;
@@ -15,4 +16,11 @@ public interface IEmailEventStore
 {
     Task<bool> TryRecordEventAsync(EmailProviderEvent providerEvent,
         IReadOnlyList<EmailSuppression> suppressions, CancellationToken ct);
+}
+
+// Generic transactional email sender used by the workflow outbox.
+public interface IEmailSender
+{
+    Task<EmailSendResult> SendAsync(Guid deliveryId, string recipient, string subject, string text,
+        string html, CancellationToken ct);
 }

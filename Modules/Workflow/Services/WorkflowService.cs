@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
+using SignIt.Modules.Email.Services;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Workflow.Models;
 
@@ -13,7 +14,7 @@ public sealed record WorkflowMutationRequest(
     Guid? DelegateUserId = null, DateTimeOffset? Until = null);
 public sealed record WorkflowMutationDto(Guid TaskId, WorkflowTaskStatus Status, Guid TaskVersion, LetterStatus LetterStatus, Guid LetterVersion, Guid? DelegationId = null);
 
-public sealed class WorkflowService(AppDbContext db, WorkflowTaskAccess access, TimeProvider clock)
+public sealed class WorkflowService(AppDbContext db, WorkflowTaskAccess access, WorkflowEmailService emails, TimeProvider clock)
 {
     public async Task<WorkflowMutationDto> MutateAsync(Guid actor, Guid taskId, string action,
         WorkflowMutationRequest request, string key, CancellationToken ct)
@@ -45,11 +46,17 @@ public sealed class WorkflowService(AppDbContext db, WorkflowTaskAccess access, 
                 var pending = await db.WorkflowTasks.Where(x => x.RevisionId == task.RevisionId && x.Id != taskId).ToListAsync(ct);
                 foreach (var other in pending) other.Cancel();
                 await RevokeMandatesAsync(task.RevisionId, ct);
+                await emails.CancelQueuedRemindersAsync(task.Id, ct);
+                var submitter = await db.Users.AsNoTracking().SingleAsync(x => x.Id == context.Letter.SubmittedByUserId, ct);
+                if (action == "reject") await emails.EnqueueRejectedAsync(context.Letter, submitter, request.Reason, ct);
+                else await emails.EnqueueRevisionRequestedAsync(context.Letter, task.RevisionId, submitter, request.Reason, ct);
                 break;
             case "defer":
                 if (request.Until is null || request.Until <= now || request.Until > now.AddDays(30))
                     throw WorkflowTaskAccess.Error(DomainErrorKind.Validation, "invalid_defer_until", "Batas penundaan harus di masa depan, maksimal 30 hari.");
                 task.Defer(actor, now, request.Until.Value, request.Reason);
+                // Tugas tidak lagi aktif: reminder yang belum terkirim dihentikan.
+                await emails.CancelQueuedRemindersAsync(task.Id, ct);
                 break;
             case "resume":
                 // Explicit resume only; no auto-approval or auto-skip when the deadline passes.

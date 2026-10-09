@@ -3,25 +3,37 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using SignIt.Modules.Authentication.Services;
+using SignIt.Modules.Email.Services;
 
 namespace SignIt.Infrastructure.Email;
 
-public sealed class ResendEmailSender(HttpClient http, ResendOptions resend, ResetEmailOptions options) : IResetEmailSender
+public sealed class ResendEmailSender(HttpClient http, ResendOptions resend, ResetEmailOptions options)
+    : IResetEmailSender, IEmailSender
 {
     public async Task<EmailSendResult> SendResetAsync(Guid emailId, string recipient, string token, CancellationToken ct)
     {
         var link = options.ResetPasswordUrl + "#token=" + Uri.EscapeDataString(token);
         var safeLink = WebUtility.HtmlEncode(link);
+        return await SendCoreAsync(emailId, "password-reset", recipient, "[SignIt] Reset password akun",
+            $"Permintaan reset password SignIt. Buka {link}\nJika Anda tidak meminta reset, abaikan email ini.",
+            $"<p>Permintaan reset password SignIt.</p><p><a href=\"{safeLink}\">Reset password</a></p>"
+                + "<p>Jika Anda tidak meminta reset, abaikan email ini.</p>", ct);
+    }
+
+    public Task<EmailSendResult> SendAsync(Guid deliveryId, string recipient, string subject, string text,
+        string html, CancellationToken ct)
+        => SendCoreAsync(deliveryId, "delivery", recipient, subject, text, html, ct);
+
+    private async Task<EmailSendResult> SendCoreAsync(Guid id, string keyPrefix, string recipient,
+        string subject, string text, string html, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, "emails");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", resend.ApiKey);
-        request.Headers.Add("Idempotency-Key", $"signit/password-reset/{emailId:N}");
+        request.Headers.Add("Idempotency-Key", $"signit/{keyPrefix}/{id:N}");
         request.Content = JsonContent.Create(new
         {
             from = options.From, to = new[] { recipient }, reply_to = options.ReplyTo,
-            subject = "[SignIt] Reset password akun",
-            text = $"Permintaan reset password SignIt. Buka {link}\nJika Anda tidak meminta reset, abaikan email ini.",
-            html = $"<p>Permintaan reset password SignIt.</p><p><a href=\"{safeLink}\">Reset password</a></p>"
-                + "<p>Jika Anda tidak meminta reset, abaikan email ini.</p>"
+            subject, text, html
         });
 
         try

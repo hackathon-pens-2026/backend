@@ -84,6 +84,8 @@ Restore/build tidak membutuhkan database atau secret. API/provisioning membutuhk
 | `Email__DailyBudget`, `Email__MonthlyBudget` | Alokasi budget pengiriman, sesuaikan kuota akun dan pengirim lain |
 | `Resend__WebhookSecret` | Secret `whsec_...` untuk verifikasi signature webhook; kosong membuat endpoint mengembalikan 503 |
 | `Resend__WebhookToleranceSeconds` | Toleransi timestamp signature (default 300 detik) |
+| `Email__AppBaseUrl` | Base URL frontend untuk tautan email (HTTPS; localhost HTTP untuk development) |
+| `Email__LetterPathTemplate` | Path halaman detail surat, default `/surat/{id}` |
 
 User-secrets development juga didukung. Contoh aman (ganti placeholder **secara lokal**, jangan commit secret):
 
