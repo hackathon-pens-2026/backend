@@ -127,6 +127,18 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+if (args.Length > 0 && args[0] == "--provision-demo")
+{
+    if (args.Length != 1 || !app.Environment.IsDevelopment())
+        throw new InvalidOperationException("--provision-demo hanya tersedia pada environment Development.");
+    using var scope = app.Services.CreateScope();
+    var created = await DemoAccountProvisioner.ProvisionAsync(
+        scope.ServiceProvider.GetRequiredService<SignIt.Infrastructure.Persistence.AppDbContext>(),
+        scope.ServiceProvider.GetRequiredService<AuthProvisioner>(), app.Environment.ContentRootPath, CancellationToken.None);
+    app.Logger.LogInformation("Provisioning demo selesai: {Count} akun baru. Kredensial lokal: .data/demo/credentials.json", created);
+    return;
+}
+
 if (args.Length > 0 && args[0] == "--provision-auth")
 {
     if (args.Length != 2) throw new InvalidOperationException("Gunakan: --provision-auth <manifest.json>");
