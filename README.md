@@ -1,176 +1,290 @@
-# SignIt Backend — Authentication
+# SignIt Backend
 
-Implementasi auth akun internal mengikuti `../SignIt-PRD.md` v2.6. Tidak ada registrasi, SSO, role picker, admin, atau endpoint CRUD akun/configuration.
+Backend **SignIt!** (Digital Campus Worker): pengajuan surat, routing persetujuan, tanda tangan QR,
+reservasi fasilitas, notifikasi email, dan verifikasi publik. Satu aplikasi ASP.NET Core
+(modular monolith) dengan PostgreSQL.
 
-## Struktur
+- Stack: ASP.NET Core (.NET 10) + EF Core/Npgsql, PostgreSQL 16, JWT RS256, QuestPDF/PdfSharp,
+  QRCoder, Resend (email), Hangfire-style worker berbasis `BackgroundService`.
+- Target deployment: API/worker di Azure App Service (Always On), database PostgreSQL persisten,
+  frontend Next.js di Vercel. Development lokal: Docker Compose di `infrastructure/docker/`.
 
-- `backend.csproj` dan `Program.cs`: satu proyek/startup API (`SignIt.Api`).
-- `Modules/Authentication/Controllers`: endpoint autentikasi dan profil.
-- `Modules/Authentication/DTOs`: request/response DTO dan error use case.
-- `Modules/Authentication/Models`: akun, assignment, sesi, refresh/reset token, audit, outbox dan budget email.
-- `Modules/Authentication/Services`: use case, interface dependency, password hashing/policy dan JWT RS256.
-- `Modules/Authentication/Data`: store PostgreSQL, provisioning dan metadata OpenAPI auth.
-- `Infrastructure/Persistence/AppDbContext.cs` dan `Migrations/`: context bersama dan migration.
-- `Infrastructure/Email`: adapter Resend, proteksi payload dan worker email reset.
-- `Infrastructure/Errors`: pemetaan error HTTP bersama.
-- `Modules/Letters`, `Templates`, `Workflow`, `Signatures`, `Rooms`, `Inventory`, `Chat`, serta `Infrastructure/Storage` dan `Llm`: direktori disiapkan, belum ada implementasi fitur.
-- `Modules/Email`: model event provider, suppression alamat, verifikasi signature Svix dan endpoint webhook Resend.
-- `tests/SignIt.Auth.Tests`: pengujian domain yang disiapkan, **belum dijalankan**.
-- `Dockerfile` dan `.dockerignore`: image multi-stage .NET 10 (runtime `10.0`), entrypoint `SignIt.Api.dll`.
+Panduan kerja agen/anggota tim ada di `AGENTS.md` (batas modul, aturan otorisasi, larangan
+menyimpan secret, dsb). Baca sebelum mengubah kode.
 
-Konsolidasi cabang: pekerjaan auth (dua stash lama) digabung dengan hasil `pull origin main` (dukungan Docker + paket lebih baru dari tim), lalu dirapikan menjadi satu backend. `Data/AppDbContext.cs` (stub duplikat dari main) dihapus karena context tunggal ada di `Infrastructure/Persistence/AppDbContext.cs`. Stash lama **tidak dihapus** agar riwayat tetap aman.
+---
 
-Struktur modular satu proyek ini mengikuti permintaan terbaru, menggantikan pemisahan proyek `SignIt.Domain`/`SignIt.Application`/`SignIt.Infrastructure`. Batas tanggung jawab tetap dijaga lewat folder/namespace: `Modules/Authentication/Models` (domain), `Services`/`DTOs` (application), serta `Data` dan `Infrastructure` (EF Core, provider, worker). Models tidak bergantung pada ASP.NET Core/EF Core; controller tetap tipis. Ini deviasi sadar dari tata letak empat proyek pada `AGENTS.md`/PRD dan dicatat agar boundary tidak tercampur. Tidak ada perubahan kontrak endpoint atau skema tabel akibat pemindahan.
+## 1. Struktur
 
-## Endpoint `/api/v1`
-
-| Method | Path | Input / hasil |
-|---|---|---|
-| POST | `/auth/login` | `{ "email", "password" }` → access/refresh token dan profil |
-| POST | `/auth/refresh` | `{ "refreshToken" }` → kedua token baru |
-| POST | `/auth/logout` | Bearer token → 204, mencabut sesi saat ini |
-| GET | `/me` | Bearer token → profil, kategori, UI surface, capabilities dan assignment aktif |
-| GET | `/me/capabilities` | Bearer token → kategori/surface/capabilities/assignment |
-| POST | `/auth/forgot-password` | `{ "email" }` → 202 dengan pesan netral |
-| POST | `/auth/reset-password` | `{ "token", "newPassword" }` → mengganti password dan mencabut seluruh sesi |
-| POST | `/webhooks/resend` | Webhook provider: verifikasi signature raw body, dedup event, suppression bounce/complaint |
-
-Respons menggunakan camelCase dan enum string. Contoh login/refresh:
-
-```json
-{
-  "accessToken": "<JWT>",
-  "accessTokenExpiresAt": "2026-10-09T10:10:00Z",
-  "refreshToken": "<opaque-token>",
-  "refreshTokenExpiresAt": "2026-10-16T10:00:00Z",
-  "tokenType": "Bearer",
-  "user": {
-    "id": "10000000-0000-0000-0000-000000000001",
-    "name": "Mahasiswa Demo",
-    "email": "student@signit.example",
-    "nimNip": null,
-    "isActive": true,
-    "emailVerifiedAt": null,
-    "userCategory": "StudentGeneral",
-    "uiSurface": "Student",
-    "capabilities": ["Requester"],
-    "assignments": []
-  }
-}
+```text
+backend/
+├── Program.cs                       # komposisi aplikasi, auth, CORS, rate limit, health, OpenAPI
+├── Modules/                         # fitur (namespace/folder, satu proyek)
+│   ├── Authentication/              # login sesi JWT RS256, akun, assignment, reset password
+│   ├── Letters/                     # draft, preview job, submit/resubmit/cancel, dokumen
+│   ├── Routing/                     # katalog organisasi/fasilitas + resolver chain approval
+│   ├── Workflow/                    # task keputusan (reject/revisi/defer/delegasi), query inbox
+│   ├── Signatures/                  # QR per akun, evidence, PDF overlay, verifikasi publik
+│   ├── Rooms/                       # reservasi fasilitas + pencegahan bentrok (exclusion constraint)
+│   ├── Email/                       # webhook provider, outbox EmailDelivery, notifikasi workflow
+│   ├── Templates/                   # katalog template dari file JSON
+│   ├── Chat/ Inventory/             # disiapkan, belum ada implementasi
+├── Infrastructure/
+│   ├── Persistence/                 # AppDbContext, migrations, design-time factory
+│   ├── Email/                       # adapter Resend, worker email, verifier signature Svix
+│   ├── Storage/                     # LocalStorageService (S3-compatible lewat adapter nanti)
+│   ├── Configuration/               # DotEnv loader (.env lokal)
+│   ├── Errors/                      # SignItDomainException, problem+json handler
+│   └── Llm/                         # disiapkan, belum ada implementasi
+├── tests/                           # SignIt.Auth.Tests, SignIt.Email.Tests,
+│                                    # SignIt.Rooms.Tests, SignIt.Signatures.Tests
+├── provisioning/                    # script seed: auth, organizations, facilities (+ SQL schema)
+├── appsettings.json                 # struktur + placeholder kosong (tanpa secret)
+└── templates/                       # aset template surat (JSON + DOCX/PDF) — lihat catatan
 ```
 
-Kategori `StudentGeneral`/`StudentDagri` memakai `Student`; `BAAK`/`Management` memakai `Management`. `Requester` adalah capability dasar akun aktif. Capability lain hanya berasal dari assignment aktif dengan masa berlaku `[ValidFrom, ValidTo)`, bukan kategori. Metadata ini membantu navigasi, **bukan izin otomatis untuk bertindak pada semua task/unit**. Modul workflow nanti wajib memeriksa task, scope, ownership dan delegasi sendiri.
+---
 
-Error berupa `application/problem+json` dengan `code`, `traceId`, dan `errors` untuk validasi. Status: 400 invalid input/reset, 401 kredensial/sesi tidak valid, 403 forbidden, 409 konflik state, 429 rate limit, 503 kegagalan persistence. Tidak mengembalikan exception/provider payload internal.
+## 2. Menjalankan (lokal)
 
-OpenAPI development: `/openapi/v1.json`. Contoh request manual ada di `backend.http`; jangan menyimpan password/token nyata di file itu.
+Prasyarat: .NET SDK 10, Docker Desktop (untuk PostgreSQL), `dotnet tool restore` (repo memakai
+local tool manifest untuk `dotnet-ef`).
 
-## Konfigurasi sebelum menjalankan
+```powershell
+# 1. Database (di root repo)
+docker compose -f infrastructure/docker/docker-compose.yml up -d database
 
-Restore/build tidak membutuhkan database atau secret. API/provisioning membutuhkan konfigurasi nyata; nilai kosong sengaja **bukan bypass autentikasi**.
+# 2. Konfigurasi lokal: salin template lalu isi nilainya (file .env ter-ignore)
+Copy-Item .env.example .env        # isi ConnectionStrings, Jwt__PrivateKeyPem, Resend keys, seed password
 
-| Nama environment variable | Kebutuhan |
+# 3. Migration + provisioning + jalankan
+dotnet tool restore
+dotnet ef database update          # DotEnv memuat .env otomatis, tanpa set env manual
+dotnet run -- --provision-auth provisioning.local.json
+dotnet run --launch-profile https  # http://localhost:5217 / https://localhost:7262
+```
+
+Alternatif konfigurasi tanpa `.env`: `dotnet user-secrets` (lihat §4) atau environment variable.
+
+### Docker penuh (DB + API + frontend)
+Compose di `infrastructure/docker/` membaca `secrets.env` (nilai sensitif) dan `.env`
+(override seperti `BACKEND_PORT`) — keduanya ter-ignore git. Lihat `infrastructure/README.md`.
+
+---
+
+## 3. Database & migrasi
+
+PostgreSQL 16 via Docker, host port **5434** (internal 5432). Connection string default lokal:
+`Host=localhost;Port=5434;Database=hackathondb;Username=appuser;Password=apppassword`.
+
+Migration yang ada (`Infrastructure/Persistence/Migrations/`):
+
+| Migration | Isi |
 |---|---|
-| `ConnectionStrings__DefaultConnection` | Connection string PostgreSQL (dev `main` memakai port 5434); simpan sebagai secret |
-| `Jwt__PrivateKeyPem` | Private key RSA PEM minimal 2048-bit; tidak digenerate ulang tiap restart |
-| `Jwt__Issuer`, `Jwt__Audience`, `Jwt__KeyId` | Harus konsisten pada seluruh replica/API |
-| `Cors__AllowedOrigins__0` | Exact frontend origin, tanpa wildcard; kosong untuk BFF server-to-server |
-| `Proxy__KnownProxies__0` | IP reverse proxy tepercaya bila memakai forwarded headers |
-| `DataProtection__KeyDirectory` | Direktori key persisten dan bersama antar-replica/worker |
-| `Email__WorkerEnabled` | Default `false`; aktifkan eksplisit setelah PostgreSQL/Resend tersedia |
-| `Email__ResetPasswordUrl` | URL frontend HTTPS tanpa query/fragment; bukan input dari client |
-| `Email__From`, `Email__ReplyTo`, `Resend__ApiKey` | Pengirim terverifikasi, mailbox bantuan, secret API key |
-| `Email__SandboxMode`, `Email__RecipientAllowlist__0` | Sandbox default aktif; non-production wajib sandbox |
-| `Email__DailyBudget`, `Email__MonthlyBudget` | Alokasi budget pengiriman, sesuaikan kuota akun dan pengirim lain |
-| `Resend__WebhookSecret` | Secret `whsec_...` untuk verifikasi signature webhook; kosong membuat endpoint mengembalikan 503 |
-| `Resend__WebhookToleranceSeconds` | Toleransi timestamp signature (default 300 detik) |
-| `Email__AppBaseUrl` | Base URL frontend untuk tautan email (HTTPS; localhost HTTP untuk development) |
-| `Email__LetterPathTemplate` | Path halaman detail surat, default `/surat/{id}` |
+| `InitialAuthentication` | akun, assignment, sesi, refresh/reset token, audit, budget email |
+| `AddSignaturesAndWorkflow` | QR, evidence, signing attempt, letter request/revision/participant, task, delegasi, dokumen, audit log |
+| `AddOrganizationsAndFacilities` | organisasi (routing), fasilitas + resource |
+| `AddEmailWebhookEvents` | `email_provider_events`, `email_suppressions` |
+| `AddLetterPreviewJobs` | job preview PDF |
+| `AddRoomReservations` | `room_reservations` + extension `btree_gist` + **exclusion constraint** anti-bentrok |
+| `AddEmailDeliveries` | outbox email generik (dedup key, status, retry) |
 
-User-secrets development juga didukung. Contoh aman (ganti placeholder **secara lokal**, jangan commit secret):
+Menambah migration (wajib ikuti lokasi/nampa folder agar konsisten):
 
 ```powershell
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5434;Database=hackathondb;Username=<user>;Password=<secret>" --project backend.csproj
-dotnet user-secrets set "Jwt:PrivateKeyPem" (Get-Content -Raw ".data/auth-signing.pem") --project backend.csproj
+dotnet ef migrations add <Nama> `
+  --output-dir Infrastructure/Persistence/Migrations `
+  --namespace SignIt.Infrastructure.Persistence.Migrations
 ```
 
-`.env` lokal juga didukung: salin `.env.example` menjadi `.env` (ter-ignore git) dan isi nilainya. Loader `Infrastructure/Configuration/DotEnv.cs` memuat `.env` untuk `dotnet run` maupun `dotnet ef`, tidak pernah menimpa environment variable yang sudah ada (konfigurasi deployment selalu menang), dan file `.env` tidak boleh di-commit. Nilai quoted boleh multi-baris, sehingga `Jwt__PrivateKeyPem` bisa ditulis sebagai PEM utuh.
+`AppDbContextFactory` (design-time) juga memuat `.env`, jadi `dotnet ef` tidak butuh env manual
+selama `.env` ada. Cek konsistensi model: `dotnet ef migrations has-pending-model-changes`.
 
-Private key RSA harus dibuat/disediakan tim melalui alat pengelolaan key yang sesuai. `.data/` di-ignore dan tidak dipublish. Saat production, simpan JWT key di secret store serta lindungi key ring Data Protection dengan akses terbatas, storage persisten terenkripsi dan backup; filesystem ephemeral tidak cukup. Implementasi ini memakai filesystem key ring, belum adapter Azure Key Vault/Blob untuk key ring.
+---
 
-Forwarded headers hanya dipakai bila IP proxy tepercaya dikonfigurasi; jangan mengaktifkan trust semua proxy atau menerima IP arbitrer dari client. Rate limiter per-IP bersifat lokal per proses; account lockout, reset cooldown, sesi dan budget email dipersistensikan bersama di PostgreSQL. Tambahkan proteksi edge/distributed rate limit sebelum deployment multi-instance berskala besar.
+## 4. Konfigurasi & secret
 
-## Migrasi dan provisioning — jalankan nanti setelah database tersedia
+Prioritas (yang ada menang): **environment variable > `.env`/user-secrets > appsettings**.
+`appsettings.json` hanya memuat struktur dan nilai kosong; validasi menolak start jika secret
+wajib tidak diisi. Jangan pernah commit secret.
 
-Migration `InitialAuthentication` dan `provisioning/auth-schema.sql` sudah dibuat **tanpa koneksi database**. SQL hanya menambah tabel/index/constraint auth; tidak mereset database atau mengisi password. Review konflik nama tabel dan privilege sebelum diterapkan. Jangan menjalankan SQL dan migration dua kali pada database yang sama.
+| Variabel | Kebutuhan |
+|---|---|
+| `ConnectionStrings__DefaultConnection` | PostgreSQL (dev `localhost:5434`) |
+| `Jwt__Issuer`, `Jwt__Audience`, `Jwt__KeyId` | konsisten di semua replika (`SignIt.Api` / `SignIt.Bff` / `signit-auth-v1`) |
+| `Jwt__PrivateKeyPem` | private key RSA PEM ≥ 2048-bit (secret) |
+| `Auth__*` | opsional; default aman di `appsettings.json` (lockout, rate limit, sesi, iterasi hash) |
+| `Email__WorkerEnabled` | default `false`; aktifkan eksplisit agar worker mengirim |
+| `Email__SandboxMode`, `Email__RecipientAllowlist__0..N` | wajib di non-production; hanya kirim ke alamat allowlist |
+| `Email__From`, `Email__ReplyTo` | pengirim domain terverifikasi + mailbox bantuan |
+| `Email__ResetPasswordUrl` | URL HTTPS halaman reset (token dibaca dari fragment `#token=`) |
+| `Email__AppBaseUrl`, `Email__LetterPathTemplate` | tautan email ke halaman surat (default `http://localhost:3000` + `/surat/{id}`) |
+| `Email__ReminderCooldownHours`, `Email__MaxRemindersPerTask`, `Email__ReminderPollSeconds` | kebijakan reminder SLA |
+| `Email__DailyBudget`, `Email__MonthlyBudget`, `Email__PollSeconds`, `Email__MaxAttempts`, `Email__HttpTimeoutSeconds` | operasional worker |
+| `Resend__ApiKey`, `Resend__WebhookSecret` | kredensial provider + secret signature webhook |
+| `Resend__WebhookToleranceSeconds` | toleransi timestamp signature (default 300) |
+| `Preview__Enabled/PollSeconds/RenderTimeoutSeconds/LeaseSeconds` | worker render preview PDF |
+| `Workflow__SlaDays` | SLA default tugas (DueAt) untuk reminder/overdue |
+| `Storage__RootDirectory` | root penyimpanan file (default `.data/storage`) |
+| `DataProtection__KeyDirectory` | key ring Data Protection (persisten) |
+| `Cors__AllowedOrigins__0..N`, `Proxy__KnownProxies__0..N` | origin frontend exact + proxy tepercaya |
 
-Perintah berikut **belum dijalankan**:
+Contoh user-secrets:
 
 ```powershell
-dotnet ef database update --project backend.csproj --context AppDbContext
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5434;Database=hackathondb;Username=<user>;Password=<secret>"
+dotnet user-secrets set "Jwt:PrivateKeyPem" (Get-Content -Raw ".data/auth-signing.pem")
 ```
 
-Untuk design-time/database update, EF factory membaca `ConnectionStrings__DefaultConnection` dari environment, bukan user-secrets. Placeholder tanpa password pada factory hanya untuk scaffolding SQL; tidak boleh dianggap konfigurasi database nyata.
+Generate key JWT lokal:
+`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .data/auth-signing.pem`.
 
-Salin `provisioning/auth.example.json` menjadi `provisioning.local.json`, perbaiki nama/email/scope/jabatan/masa berlaku sesuai data tim, dan isi empat environment variable password yang disebut manifest. Contoh kategori/assignment bukan kebijakan resmi kampus. `emailVerified: true` hanya boleh digunakan setelah tim memverifikasi alamat; tidak ada verifikasi email publik/aktivasi akun dalam MVP.
+---
+
+## 5. Provisioning data awal
+
+Akun dibuat tim lewat CLI (tanpa registrasi/panel akun):
 
 ```powershell
-dotnet run --project backend.csproj --no-launch-profile -- --provision-auth provisioning.local.json
+Copy-Item provisioning/auth.example.json provisioning.local.json   # sesuaikan akun/assignment
+dotnet run -- --provision-auth provisioning.local.json
 ```
 
-Provisioning hanya melalui CLI, tidak berjalan otomatis saat startup, dan tidak mengirim email. ID/email stabil mencegah akun ganda; akun/assignment lama tidak ditulis ulang dan password lama tidak direset. Manifest yang bertentangan ditolak; koreksi memerlukan script ter-audit. Aset QR adalah tanggung jawab modul Signatures berikutnya, bukan token auth dan belum dirender oleh fitur ini.
+Password akun diambil dari environment variable yang dirujuk manifest (`SIGNIT_SEED_*`).
+Idempoten: akun lama tidak direset/diduplikasi.
 
-Setelah siap, jalankan API memakai profil HTTPS yang sudah ada:
+Script SQL untuk master data (jalankan via `psql` pada database dev):
+
+- `provisioning/organizations.sql` — organisasi + scope untuk routing.
+- `provisioning/facilities.sql` — fasilitas (PS/SAW/D3/D4/lapangan) + resource ruangan.
+- `provisioning/auth-schema.sql` — referensi skema auth (dipakai jika perlu seed manual).
+
+**Catatan**: aset template surat (`templates/*.json` + file sumber) belum ada di repo —
+`GET /templates` dan pipeline preview memerlukan aset itu. Letakkan di `backend/templates/`
+(atau `<root>/templates/`) sesuai seed tim.
+
+---
+
+## 6. Endpoint (`/api/v1`)
+
+Semua endpoint butuh login kecuali yang ditandai publik. Aksi tulis mutasi workflow memerlukan
+header `Idempotency-Key` (kecuali sign/approve/acknowledge yang menerimanya opsional).
+
+| Grup | Endpoint |
+|---|---|
+| Auth (publik) | `POST /auth/login`, `/auth/refresh`, `/auth/forgot-password`, `/auth/reset-password`; `POST /auth/logout` (login) |
+| Profil | `GET /me`, `GET /me/capabilities` |
+| QR tanda tangan | `GET /me/signature-qr`, `GET /me/signature-qr/raw` |
+| Template | `GET /templates`, `GET /templates/{typeId}` |
+| Routing | `GET /routing/organizations`, `/routing/resources?facilityId=`, `/routing/facilities`, `/routing/organizations/{id}/candidates` |
+| Letters | `POST /letters/drafts`, `GET /letters/{id}`, `PUT /letters/{id}/draft`, `POST /letters/{id}/cancel`, `POST /letters/routing-preview`, `POST /letters/{id}/preview`, `GET /letters/{id}/previews/{jobId}`, `GET /letters/{id}/documents/{documentId}`, `POST /letters/{id}/submit`, `POST /letters/{id}/resubmit` |
+| Tugas (query) | `GET /tasks`, `GET /tasks/{id}`, `GET /letters/{id}/workflow`, `GET /tasks/{id}/document`, `GET /tasks/{id}/delegate-candidates` |
+| Tugas (aksi) | `POST /tasks/{id}/sign`, `/approve`, `/acknowledge`, `/reject`, `/request-revision`, `/defer`, `/resume`, `/delegate`, `/revoke-delegation` |
+| Reservasi fasilitas | `GET /rooms`, `GET /rooms/{id}/schedule?from=&to=`, `POST /rooms/check-availability`, `POST /rooms/bookings`, `POST /rooms/bookings/{id}/confirm`, `POST /rooms/bookings/{id}/cancel` |
+| Verifikasi publik | `GET /verify/{code}`, `POST /verify/upload` (multipart PDF) |
+| Webhook | `POST /webhooks/resend` (tanpa login; verifikasi signature) |
+| Sistem | `GET /health` (publik), `GET /openapi/v1.json` (development) |
+
+Respons memakai problem+json dengan `code` stabil. Perubahan/penulisan memakai expected
+revision/version + optimistic concurrency; stale request ditolak 409.
+
+---
+
+## 7. Modul & perilaku penting
+
+### Authentication
+Login email/password (akun seed), JWT RS256 + sesi server-side (security stamp dicek per request),
+lockout, refresh rotasi sekali pakai, reset password sekali pakai lewat email. Kategori akun:
+`StudentGeneral`, `StudentDagri`, `BAAK`, `Management`; UI surface diturunkan (Student/Management).
+Capability berasal dari assignment aktif, bukan kategori.
+
+### Letters & Routing
+Draft → preview (worker render, hash input & slot) → submit/resubmit. Resolver routing menentukan
+urutan chain dari jenis surat, organisasi, dan fasilitas:
+Proposal/LPJ 5 tahap · Ruangan PS/SAW 6 tahap · Ruangan ber-Dagri (D3/lapangan) 7 tahap ·
+Peminjaman barang 6 tahap. Revisi immutable + snapshot peserta/aturan; revisi baru mengulang TTD.
+
+### Workflow tasks
+Aksi per tahap: `Sign`, `ApproveAndSign`, `Acknowledge`, plus keputusan `reject`, `request-revision`,
+`defer`, `resume`, `delegate`, `revoke-delegation`. Hanya tugas aktif dan actor berwenang
+(assignment sesuai scope + DomainCode + capability; delegasi maksimal satu tingkat) yang bisa
+bertindak. Idempotency replay mengembalikan hasil sama untuk key yang sama.
+
+### Signatures
+QR dibuat backend per akun (idempoten, snapshot versi/hash per evidence). Tindakan sign/approve
+menulis `SignatureEvidence` + `SigningAttempt` transaksional, lalu tahap berikutnya aktif.
+Finalisasi merender PDF final dengan overlay QR semua actor + kode verifikasi publik
+(`GET /verify/{code}`, upload hash check).
+
+### Rooms (reservasi fasilitas)
+`POST /rooms/bookings` membuat reservasi `Pending`; konfirmasi terjadi saat aksi final workflow
+(dipanggil `RoomReservationService.TryConfirmForRevisionAsync`) **atau** manual oleh pemohon/petugas
+(`confirm`). Anti-bentrok dijamin database dengan exclusion constraint pada rentang
+`[StartsAt, EndsAt)` untuk status `Confirmed` di resource yang sama — dua approval bersamaan:
+satu menang, yang kalah menerima `409 resource_schedule_conflict`, tugas tetap aktif, dan surat
+masuk `AwaitingResourceResolution` sampai konflik selesai. Waktu disimpan UTC, ditampilkan
+Asia/Jakarta (+07:00). Kegiatan yang berakhir tepat saat kegiatan lain mulai tidak dianggap bentrok.
+
+### Email
+Dua jalur:
+1. **Reset password** — outbox auth (`auth_password_reset_emails`) + worker khusus.
+2. **Notifikasi workflow generik** — outbox `email_deliveries`:
+   - Event: pengajuan terkirim, tugas aktif (tugas baru/berpindah), revisi, ditolak, selesai.
+   - Reminder SLA: tugas `Active` dengan `DueAt` terlewati; cooldown default 24 jam, maksimum
+     `Email__MaxRemindersPerTask`; dedup key harian Asia/Jakarta.
+   - **Deduplikasi** dijaga unique `DeduplicationKey` per event/entitas/penerima.
+   - **Penghentian**: reminder batal saat tugas selesai/reject/revisi/defer; worker juga
+     melewati delivery reminder jika tugas sudah tidak `Active`.
+   - Isi email hanya ringkas + tautan (`Email__AppBaseUrl` + `Email__LetterPathTemplate`),
+     tanpa lampiran dokumen; tindakan tetap memerlukan login & otorisasi.
+3. **Webhook Resend** (`POST /webhooks/resend`): verifikasi signature Svix (raw body + timestamp),
+   dedup event per provider+event id, suppression otomatis untuk bounce permanent/complaint;
+   alamat tersuppressed tidak dikirim lagi oleh worker.
+
+Worker berjalan sebagai `BackgroundService` di proses API: `PasswordResetEmailWorker`,
+`EmailDeliveryWorker`, `WorkflowReminderWorker`, `LetterPreviewWorker`. Di hosting, aktifkan
+Always On / proses worker yang benar-benar berjalan (`Email__WorkerEnabled=true`).
+
+### Audit
+Semua mutasi penting menulis `app_audit_logs` (actor, aksi, entitas, revisi, korelasi, IP/UA).
+Replay idempotency disimpan sebagai audit `Workflow`/payload ter-hash.
+
+---
+
+## 8. Testing
 
 ```powershell
-dotnet run --project backend.csproj --launch-profile https
+dotnet test tests/SignIt.Auth.Tests/SignIt.Auth.Tests.csproj          # 15 unit (auth, lockout, token)
+dotnet test tests/SignIt.Email.Tests/SignIt.Email.Tests.csproj        # 19 unit (webhook, outbox, reminder)
+dotnet test tests/SignIt.Rooms.Tests/SignIt.Rooms.Tests.csproj        # 11 unit (interval, model reservasi)
+dotnet test tests/SignIt.Signatures.Tests/SignIt.Signatures.Tests.csproj
 ```
 
-Batasi privilege runtime PostgreSQL: audit memerlukan INSERT/SELECT, bukan UPDATE/DELETE. Gunakan credential terpisah untuk migration/operasional. Retensi audit/token/outbox serta script cleanup harus ditentukan tim; consumed refresh token jangan dihapus sebelum sesi berakhir karena dibutuhkan untuk deteksi replay.
+Proyek `SignIt.Signatures.Tests` memuat unit + integrasi (sebagian butuh PostgreSQL/fixture);
+jalankan dengan database dev aktif. Verifikasi end-to-end email/reminder pernah dilakukan live
+terhadap Resend (sandbox + allowlist) dan tercatat di riwayat commit.
 
-## Keamanan sesi dan integrasi frontend
+---
 
-- Password memakai ASP.NET Core Identity V3 PBKDF2-SHA512 dengan salt dan default 210.000 iterasi; hash lama dapat di-upgrade setelah login berhasil. Minimum password/passphrase 12 karakter, maksimum 128; tidak memotong password.
-- Default JWT 10 menit, sesi absolut 7 hari. Signature RS256, issuer, audience, expiry dan algoritma divalidasi. Setiap request berizin juga memeriksa sesi/security stamp di database, sehingga logout/reset efektif sebelum JWT kedaluwarsa.
-- Refresh/reset token acak 256-bit; database menyimpan SHA-256, bukan token mentah. Refresh dirotasi sekali pakai. Pemakaian ulang refresh lama mencabut seluruh sesi/family terkait. Reset token sekali pakai, default 30 menit; permintaan baru membatalkan reset sebelumnya.
-- Lima login gagal menyebabkan lockout 15 menit. Akun nonaktif, lockout dan password salah mendapat pesan login netral yang sama. Forgot-password netral juga untuk akun tidak ada/nonaktif/cooldown.
-- Gunakan Next.js BFF untuk Vercel–Azure: simpan access/refresh di server BFF dan berikan cookie sesi `HttpOnly; Secure; SameSite` ke browser. **Jangan menyimpan refresh token di localStorage/sessionStorage.** API ini tidak memakai cookie browser; CSRF/origin checks harus diterapkan pada endpoint cookie milik BFF.
-- BFF wajib menserialkan refresh per sesi (single-flight). Dua refresh bersamaan/retry token lama dianggap replay. Jika respons refresh hilang dan token baru tidak diketahui, minta login ulang; jangan retry buta dengan token lama.
-- Respons auth/profile tidak boleh di-cache publik. Jangan memasukkan token/password ke log, query string atau telemetry.
+## 9. Konvensi
 
-## Email reset password
+- Conventional Commits (`feat:`, `fix:`, `build:`, `chore:`, `docs:`).
+- Jangan commit `.env`, `secrets.env`, key, atau password. Gunakan env/user-secrets/secret store.
+- Migration selalu lewat `dotnet ef` dengan lokasi/nampa folder tetap (§3).
+- Satu style controller (MVC controller) dengan DTO eksplisit; envelope error problem+json.
+- Ikuti `AGENTS.md` untuk batas modul dan aturan otorisasi.
 
-Forgot-password menyimpan token dan outbox secara atomik; API tidak menunggu Resend. Dengan worker default nonaktif, **email hanya queued dan belum dikirim**, bukan simulasi pengiriman sukses. Worker aktif membutuhkan persistent hosting/Always On atau proses worker yang benar-benar berjalan.
+---
 
-Worker memakai PostgreSQL row lock/lease, stable Resend idempotency key, retry bounded/backoff/Retry-After, sandbox allowlist dan budget harian/bulanan UTC yang dicadangkan sebelum setiap HTTP attempt. Budget ini konservatif termasuk retry; kuota provider tetap authoritative. Token expired/sudah dipakai/dibatalkan tidak dikirim. Kuota yang tertunda sampai token expired memerlukan permintaan reset baru.
+## 10. Diketahui belum selesai
 
-Payload token pada outbox dienkripsi menggunakan Data Protection dan dibersihkan setelah outcome terminal. `Accepted` hanya berarti Resend menerima pesan, **bukan Delivered/dibaca**. Timeout ambigu disimpan sebagai `Unknown`; setelah batas retry/jendela aman, retry dihentikan untuk rekonsiliasi tim, bukan dikirim ulang buta. Webhook delivered/bounce/suppression umum adalah cakupan modul Email berikutnya dan belum diimplementasikan di fitur auth ini.
-
-Tautan email memakai `#token=...`, sehingga token tidak masuk query/log server/referrer. Halaman frontend harus membaca fragment, segera membersihkan URL, dan hanya mengirim token lewat body POST setelah user memilih password baru. Kunjungan GET/email scanner tidak mengubah password. Matikan open/click tracking di pengaturan Resend untuk email transaksi.
-
-## Webhook status pengiriman (Resend)
-
-- `POST /api/v1/webhooks/resend` menerima event provider tanpa login pengguna. Signature Svix diverifikasi dari raw body + timestamp (toleransi default 300 detik); permintaan tanpa signature sah ditolak 401 dan secret yang belum dikonfigurasi menghasilkan 503.
-- Event disimpan per provider + event ID (`email_provider_events`) dengan unique constraint sehingga replay tidak menggandakan efek; event duplikat dijawab 200 `duplicate`.
-- `email.bounced` (kecuali transient) dan `email.complained` menambahkan alamat ke `email_suppressions`; event dan suppression ditulis dalam satu transaksi agar retry tidak kehilangan suppression.
-- Worker reset email berhenti mengirim ke alamat tersuppressed (`recipient_suppressed`, tanpa retry).
-- `Accepted`/`Delivered` tetap bukan bukti email dibaca; status pengiriman terpisah dari status workflow surat.
-
-## Verifikasi yang telah dilakukan
-
-- `dotnet restore backend.csproj` dan restore proyek test: berhasil.
-- `dotnet tool restore`: berhasil, EF CLI 10.0.12.
-- `dotnet build backend.csproj --no-restore`: berhasil, 0 warning/error.
-- `dotnet build tests/SignIt.Auth.Tests/SignIt.Auth.Tests.csproj --no-restore`: kompilasi berhasil, **bukan eksekusi tes**.
-- Paket versi terbaru tanpa downgrade/bentrok: `Microsoft.AspNetCore.OpenApi` & `Microsoft.AspNetCore.Authentication.JwtBearer` 10.0.12, `Microsoft.EntityFrameworkCore`/`Relational`/`Design` 10.0.12, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.3, `System.IdentityModel.Tokens.Jwt` 8.23.0, `Microsoft.OpenApi` 2.12.2.
-- `Microsoft.EntityFrameworkCore.Relational` dipin eksplisit agar proyek tes tidak turun ke 10.0.4 lewat dependensi minimum Npgsql.
-- `dotnet ef migrations has-pending-model-changes`: tidak ada perubahan model; migration `InitialAuthentication` diregenerasi dengan EF 10.0.12 (ProductVersion 10.0.12) dan `provisioning/auth-schema.sql` diperbarui. Belum diterapkan ke database.
-- `Microsoft.OpenApi` 2.12.2 memuat perbaikan advisory `GHSA-v5pm-xwqc-g5wc`.
-
-Sesuai permintaan, **tidak menjalankan `dotnet test`, API, provisioning, migration update, request endpoint, atau pengiriman email**. Database belum tersedia. Login lintas akun, concurrency refresh/reset/lockout, migration PostgreSQL, pemulihan key ring, Resend dan alur BFF/CORS/CSRF tetap perlu diuji setelah layanan tersedia; build saja bukan bukti siap rilis.
-
-### Email webhook (lanjutan)
-
-- Unit tests `tests/SignIt.Email.Tests`: 13/13 lulus (signature Svix valid/tampered/expired/multi-signature, dedup event, suppression bounce permanent/complaint, bounce transient tidak men-suppress, payload invalid).
-- Verifikasi live terhadap API: event valid → 200 `processed`; event ID sama → 200 `duplicate`; signature salah → 401; `email.bounced` permanent dan `email.complained` membuat baris `email_suppressions`; bounce transient tidak. Data uji dibersihkan dari database development.
-- Migration `AddEmailWebhookEvents` diterapkan ke PostgreSQL development; `has-pending-model-changes` bersih.
+- Aset template surat belum tersedia di repo (`templates/`) — katalog/preview menunggu aset seed.
+- Halaman detail surat frontend (`/surat/{id}`) belum ada; tautan email memakai path yang dapat
+  dikonfigurasi (`Email__LetterPathTemplate`).
+- Email tugas aktif dikirim ke `AssignedUserId`; notifikasi ke penerima delegasi aktif belum
+  ditambahkan (PRD §12.2).
+- `GET /openapi/v1.json` di development sedang error (schema Guid) — endpoint tetap berjalan;
+  daftar di §6 diambil langsung dari kode.
+- Modul OCR/scan, chatbot, inventory, dan queue unit belum diimplementasikan.
+- Budget kuota pada worker `EmailDeliveryWorker` belum memakai `auth_reset_email_budget`
+  (hanya worker reset password yang memakainya).
