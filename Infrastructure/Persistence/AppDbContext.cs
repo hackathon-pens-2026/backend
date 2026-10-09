@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SignIt.Modules.Authentication.Models;
 using SignIt.Modules.Email.Models;
 using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Rooms.Models;
 using SignIt.Modules.Signatures.Models;
 using SignIt.Modules.Workflow.Models;
 
@@ -34,6 +35,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Delegation> Delegations => Set<Delegation>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<RoomReservation> RoomReservations => Set<RoomReservation>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -305,5 +307,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         auditLogs.Property(x => x.UserAgent).HasMaxLength(512);
         auditLogs.HasIndex(x => new { x.ActorUserId, x.AtUtc });
         auditLogs.HasIndex(x => new { x.Entity, x.EntityId });
+
+        var roomReservations = model.Entity<RoomReservation>();
+        roomReservations.ToTable("room_reservations", t =>
+        {
+            t.HasCheckConstraint("ck_room_reservation_range", "\"EndsAt\" > \"StartsAt\"");
+            t.HasCheckConstraint("ck_room_reservation_status", "\"Status\" IN ('Pending','Confirmed','Cancelled','Released')");
+        });
+        roomReservations.HasKey(x => x.Id);
+        roomReservations.Property(x => x.ActivityType).HasMaxLength(200);
+        roomReservations.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        roomReservations.Property(x => x.RowVersion).IsConcurrencyToken();
+        roomReservations.HasIndex(x => new { x.FacilityResourceId, x.Status, x.StartsAt });
+        roomReservations.HasIndex(x => x.RequestedByUserId);
+        roomReservations.HasIndex(x => x.LetterRevisionId);
+        roomReservations.HasOne<SignIt.Modules.Routing.Models.FacilityResource>().WithMany()
+            .HasForeignKey(x => x.FacilityResourceId).OnDelete(DeleteBehavior.Restrict);
+        roomReservations.HasOne<User>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

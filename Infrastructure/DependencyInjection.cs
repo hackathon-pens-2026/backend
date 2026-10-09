@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<SignIt.Modules.Letters.Services.LettersService>();
         services.AddScoped<SignIt.Modules.Letters.Services.LetterSubmissionService>();
         services.AddScoped<SignIt.Modules.Routing.Services.RoutingService>();
+        services.AddScoped<SignIt.Modules.Rooms.Services.RoomReservationService>();
 
         services.AddOptions<StorageOptions>().Bind(configuration.GetSection("Storage"));
         services.AddSingleton<IStorageService, LocalStorageService>();

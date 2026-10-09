@@ -61,10 +61,20 @@ public sealed class LetterRequest
 
     public void MarkFinalizing()
     {
-        if (Status != LetterStatus.InProgress && Status != LetterStatus.ProcessingFailed)
+        if (Status != LetterStatus.InProgress && Status != LetterStatus.ProcessingFailed
+            && Status != LetterStatus.AwaitingResourceResolution)
             throw new InvalidOperationException($"Transisi ke Finalizing tidak valid dari status {Status}.");
 
         Status = LetterStatus.Finalizing;
+        RowVersion = Guid.NewGuid();
+    }
+
+    public void MarkAwaitingResourceResolution()
+    {
+        if (Status != LetterStatus.InProgress && Status != LetterStatus.AwaitingResourceResolution)
+            throw new InvalidOperationException($"Transisi ke AwaitingResourceResolution tidak valid dari status {Status}.");
+
+        Status = LetterStatus.AwaitingResourceResolution;
         RowVersion = Guid.NewGuid();
     }
 
