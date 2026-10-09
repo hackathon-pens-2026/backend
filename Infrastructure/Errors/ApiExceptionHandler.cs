@@ -11,6 +11,7 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     {
         var (status, code, message) = exception switch
         {
+            SignItDomainException domain => ((int)domain.Kind, domain.Code, domain.Message),
             AuthException auth => (auth.Kind switch
             {
                 AuthErrorKind.Validation => 400,
