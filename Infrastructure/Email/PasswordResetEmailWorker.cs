@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SignIt.Modules.Authentication.Services;
 using SignIt.Modules.Authentication.Models;
+using SignIt.Modules.Email.Models;
 using SignIt.Infrastructure.Persistence;
 
 namespace SignIt.Infrastructure.Email;
@@ -48,10 +49,13 @@ public sealed class PasswordResetEmailWorker(IServiceScopeFactory scopes, ResetE
             if (email is null) return;
             var reset = await db.ResetTokens.SingleAsync(x => x.Id == email.ResetTokenId, ct);
             var user = await db.Users.AsNoTracking().SingleAsync(x => x.Id == reset.UserId, ct);
+            var normalizedRecipient = EmailSuppression.Normalize(email.Recipient);
             if (!reset.IsValid(user, now))
                 email.Stop("reset_no_longer_valid", cancelled: true);
             else if (options.SandboxMode && !options.RecipientAllowlist.Contains(email.Recipient, StringComparer.OrdinalIgnoreCase))
                 email.Stop("sandbox_recipient_blocked");
+            else if (await db.EmailSuppressions.AnyAsync(x => x.Email == normalizedRecipient, ct))
+                email.Stop("recipient_suppressed");
             else if (email.Attempts >= options.MaxAttempts || email.FirstAttemptAt <= now.AddHours(-23))
                 email.Stop("retry_requires_reconciliation", unknown: email.Status == ResetEmailStatus.Unknown);
             else

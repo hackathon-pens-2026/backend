@@ -6,6 +6,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SignIt.Modules.Authentication.Services;
 using SignIt.Modules.Authentication.Data;
+using SignIt.Modules.Email.Data;
+using SignIt.Modules.Email.Services;
 using SignIt.Infrastructure.Email;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
@@ -75,6 +77,9 @@ public static class DependencyInjection
             .Validate(o => !configuration.GetValue<bool>("Email:WorkerEnabled") || !string.IsNullOrWhiteSpace(o.ApiKey),
                 "Resend:ApiKey wajib untuk worker email aktif.").ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<ResendOptions>>().Value);
+        services.AddSingleton<IEmailWebhookVerifier, ResendWebhookVerifier>();
+        services.AddScoped<IEmailEventStore, EfEmailEventStore>();
+        services.AddScoped<EmailWebhookProcessor>();
 
         services.AddOptions<Email.DataProtectionOptions>().Bind(configuration.GetSection("DataProtection"))
             .Validate(o => !string.IsNullOrWhiteSpace(o.KeyDirectory), "DataProtection:KeyDirectory wajib diisi.").ValidateOnStart();

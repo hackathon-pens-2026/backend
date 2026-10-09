@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using SignIt.Modules.Authentication.Models;
-using SignIt.Modules.Signatures.Models;
+using SignIt.Modules.Email.Models;
 using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Signatures.Models;
 using SignIt.Modules.Workflow.Models;
 
 namespace SignIt.Infrastructure.Persistence;
@@ -16,6 +17,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<PasswordResetEmail> ResetEmails => Set<PasswordResetEmail>();
     public DbSet<AuthAudit> Audits => Set<AuthAudit>();
     public DbSet<ResetEmailBudget> EmailBudgets => Set<ResetEmailBudget>();
+    public DbSet<EmailProviderEvent> EmailProviderEvents => Set<EmailProviderEvent>();
+    public DbSet<EmailSuppression> EmailSuppressions => Set<EmailSuppression>();
 
     public DbSet<UserSignatureQr> SignatureQrs => Set<UserSignatureQr>();
     public DbSet<SignatureEvidence> SignatureEvidences => Set<SignatureEvidence>();
@@ -119,6 +122,24 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         budgets.HasKey(x => x.Id);
         budgets.Property(x => x.Id).ValueGeneratedNever();
         budgets.Property(x => x.Version).IsConcurrencyToken();
+
+        var providerEvents = model.Entity<EmailProviderEvent>();
+        providerEvents.ToTable("email_provider_events");
+        providerEvents.HasKey(x => x.Id);
+        providerEvents.Property(x => x.Provider).HasMaxLength(30);
+        providerEvents.Property(x => x.EventId).HasMaxLength(150);
+        providerEvents.Property(x => x.EventType).HasMaxLength(80);
+        providerEvents.Property(x => x.ProviderMessageId).HasMaxLength(150);
+        providerEvents.HasIndex(x => new { x.Provider, x.EventId }).IsUnique();
+        providerEvents.HasIndex(x => x.ProviderMessageId);
+
+        var suppressions = model.Entity<EmailSuppression>();
+        suppressions.ToTable("email_suppressions");
+        suppressions.HasKey(x => x.Id);
+        suppressions.Property(x => x.Email).HasMaxLength(254);
+        suppressions.Property(x => x.Reason).HasMaxLength(80);
+        suppressions.Property(x => x.Source).HasMaxLength(30);
+        suppressions.HasIndex(x => x.Email).IsUnique();
 
         var qrs = model.Entity<UserSignatureQr>();
         qrs.ToTable("sig_user_qrs", t =>

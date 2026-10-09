@@ -18,6 +18,8 @@ public sealed class ResetEmailOptions
 public sealed class ResendOptions
 {
     public string ApiKey { get; set; } = string.Empty;
+    public string WebhookSecret { get; set; } = string.Empty;
+    public int WebhookToleranceSeconds { get; set; } = 300;
 }
 
 public sealed class DataProtectionOptions
