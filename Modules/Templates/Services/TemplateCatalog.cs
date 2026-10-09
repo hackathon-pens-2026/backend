@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace SignIt.Modules.Templates.Services;
 
@@ -27,6 +28,9 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
                 var group = field.GetProperty("group").GetString()!;
                 var source = key.StartsWith("qr_", StringComparison.Ordinal) ? "signatureEvidence"
                     : group == "tanda_tangan" ? "participant"
+                    : key is "nama_pembina_ormawa" or "nama_ketua_pelaksana" or "nama_penanggung_jawab" or "nama_pembina_minat_bakat" ? "participant"
+                    : key == "ruangan_kegiatan" ? "resource"
+                    : key == "nama_ormawa" ? "organization"
                     : key == "nomor_surat" ? "server" : "user";
                 return new TemplateField(key, field.GetProperty("label").GetString()!,
                     field.GetProperty("type").GetString()!, field.GetProperty("required").GetBoolean(), group, source);
@@ -36,5 +40,23 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
                 root.GetProperty("source_document").GetString()!, fields));
         }
         return result;
+    }
+
+    public async Task<(TemplateRenderLayout Layout, string AssetHash)> GetRenderLayoutAsync(LetterTemplateDto template, CancellationToken ct)
+    {
+        string Resolve(string name)
+        {
+            if (Path.GetFileName(name) != name) throw new InvalidOperationException("Nama aset template tidak valid.");
+            var path = Path.Combine(environment.ContentRootPath, "templates", name);
+            return File.Exists(path) ? path : Path.Combine(environment.ContentRootPath, "..", "templates", name);
+        }
+        var layoutBytes = await File.ReadAllBytesAsync(Resolve(template.TypeId + ".layout.json"), ct);
+        var layout = JsonSerializer.Deserialize<TemplateRenderLayout>(layoutBytes, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new InvalidOperationException("Layout template kosong.");
+        var schema = await File.ReadAllBytesAsync(Resolve(template.TypeId + ".json"), ct);
+        var source = await File.ReadAllBytesAsync(Resolve(template.SourceDocument), ct);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var bytes in new[] { schema, layoutBytes, source }) hash.AppendData(bytes);
+        return (layout, Convert.ToHexStringLower(hash.GetHashAndReset()));
     }
 }

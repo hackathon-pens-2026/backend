@@ -51,12 +51,31 @@ public sealed class LetterRequest
         RowVersion = Guid.NewGuid();
     }
 
+    public void MarkDraft()
+    {
+        if (CurrentRevisionId.HasValue || Status != LetterStatus.InProgress)
+            throw new InvalidOperationException("Hanya pengajuan baru yang dapat dijadikan draft.");
+        Status = LetterStatus.Draft;
+        RowVersion = Guid.NewGuid();
+    }
+
     public void MarkFinalizing()
     {
         if (Status != LetterStatus.InProgress && Status != LetterStatus.ProcessingFailed)
             throw new InvalidOperationException($"Transisi ke Finalizing tidak valid dari status {Status}.");
 
         Status = LetterStatus.Finalizing;
+        RowVersion = Guid.NewGuid();
+    }
+
+    public void Submit(Guid organizationId, string number, DateTimeOffset now)
+    {
+        if (Status != LetterStatus.Draft || organizationId == Guid.Empty || string.IsNullOrWhiteSpace(number))
+            throw new InvalidOperationException("Hanya draft valid yang dapat diajukan.");
+        OrganizationId = organizationId;
+        Number = number;
+        SubmittedAt = now;
+        Status = LetterStatus.InProgress;
         RowVersion = Guid.NewGuid();
     }
 

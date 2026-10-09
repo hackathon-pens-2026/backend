@@ -9,6 +9,9 @@ namespace SignIt.Infrastructure.Persistence;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
+    public DbSet<SignIt.Modules.Routing.Models.Organization> Organizations => Set<SignIt.Modules.Routing.Models.Organization>();
+    public DbSet<SignIt.Modules.Routing.Models.Facility> Facilities => Set<SignIt.Modules.Routing.Models.Facility>();
+    public DbSet<SignIt.Modules.Routing.Models.FacilityResource> FacilityResources => Set<SignIt.Modules.Routing.Models.FacilityResource>();
     public DbSet<User> Users => Set<User>();
     public DbSet<UserAssignment> Assignments => Set<UserAssignment>();
     public DbSet<AuthSession> Sessions => Set<AuthSession>();
@@ -34,6 +37,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        var organizations = model.Entity<SignIt.Modules.Routing.Models.Organization>();
+        organizations.ToTable("organizations", t => t.HasCheckConstraint("ck_organization_kind", "\"Kind\" IN ('Himpunan','Organisasi')"));
+        organizations.HasKey(x => x.Id);
+        organizations.Property(x => x.Scope).HasMaxLength(200);
+        organizations.Property(x => x.Name).HasMaxLength(200);
+        organizations.Property(x => x.Kind).HasMaxLength(30);
+        organizations.HasIndex(x => x.Scope).IsUnique();
+        var facilities = model.Entity<SignIt.Modules.Routing.Models.Facility>();
+        facilities.ToTable("facilities");
+        facilities.HasKey(x => x.Id);
+        facilities.Property(x => x.Code).HasMaxLength(80);
+        facilities.Property(x => x.Name).HasMaxLength(200);
+        facilities.HasIndex(x => x.Code).IsUnique();
+        var resources = model.Entity<SignIt.Modules.Routing.Models.FacilityResource>();
+        resources.ToTable("facility_resources", t => t.HasCheckConstraint("ck_resource_floor", "\"Floor\" IS NULL OR \"Floor\" >= 0"));
+        resources.HasKey(x => x.Id);
+        resources.Property(x => x.Code).HasMaxLength(80);
+        resources.HasIndex(x => new { x.FacilityId, x.Code }).IsUnique();
+        resources.HasOne<SignIt.Modules.Routing.Models.Facility>().WithMany().HasForeignKey(x => x.FacilityId).OnDelete(DeleteBehavior.Restrict);
         var users = model.Entity<User>();
         users.ToTable("auth_users", t =>
         {
