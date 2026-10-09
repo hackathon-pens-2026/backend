@@ -92,6 +92,8 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Po
 dotnet user-secrets set "Jwt:PrivateKeyPem" (Get-Content -Raw ".data/auth-signing.pem") --project backend.csproj
 ```
 
+`.env` lokal juga didukung: salin `.env.example` menjadi `.env` (ter-ignore git) dan isi nilainya. Loader `Infrastructure/Configuration/DotEnv.cs` memuat `.env` untuk `dotnet run` maupun `dotnet ef`, tidak pernah menimpa environment variable yang sudah ada (konfigurasi deployment selalu menang), dan file `.env` tidak boleh di-commit. Nilai quoted boleh multi-baris, sehingga `Jwt__PrivateKeyPem` bisa ditulis sebagai PEM utuh.
+
 Private key RSA harus dibuat/disediakan tim melalui alat pengelolaan key yang sesuai. `.data/` di-ignore dan tidak dipublish. Saat production, simpan JWT key di secret store serta lindungi key ring Data Protection dengan akses terbatas, storage persisten terenkripsi dan backup; filesystem ephemeral tidak cukup. Implementasi ini memakai filesystem key ring, belum adapter Azure Key Vault/Blob untuk key ring.
 
 Forwarded headers hanya dipakai bila IP proxy tepercaya dikonfigurasi; jangan mengaktifkan trust semua proxy atau menerima IP arbitrer dari client. Rate limiter per-IP bersifat lokal per proses; account lockout, reset cooldown, sesi dan budget email dipersistensikan bersama di PostgreSQL. Tambahkan proteksi edge/distributed rate limit sebelum deployment multi-instance berskala besar.
