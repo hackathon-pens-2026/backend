@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "template_id": "TEMPLATE-PEMINJAMAN-BARANG-01",
+  "name": "Surat Permohonan Peminjaman Alat / Barang",
+  "category": "Peminjaman Barang",
+  "version": "1.1.0",
+  "description": "Template resmi surat permohonan peminjaman barang/alat untuk kegiatan organisasi di Politeknik Elektronika Negeri Surabaya (PENS) lengkap dengan alur tanda tangan elektronik (QR Code) Pemohon, Mengetahui, dan Menyetujui.",
+  "source_document": "Template - Peminjaman Barang.docx",
+  "placeholder_format": "mustache",
+  "fields": [
+    {
+      "key": "nomor_surat",
+      "label": "Nomor Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "6.4/INT/PMH/BPM/UKKI-PENS/X/2026",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "perihal",
+      "label": "Perihal",
+      "type": "string",
+      "required": true,
+      "default_value": "Permohonan Peminjaman Alat",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "lampiran",
+      "label": "Lampiran",
+      "type": "string",
+      "required": true,
+      "default_value": "-",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "kota_surat",
+      "label": "Kota Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "Surabaya",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "tanggal_surat",
+      "label": "Tanggal Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "5 Oktober 2026",
+      "group": "metadata_surat"
+    },
+    {
+      "key": "tujuan_surat",
+      "label": "Tujuan Surat",
+      "type": "string",
+      "required": true,
+      "default_value": "Kepala Departemen Eksternal",
+      "group": "penerima_surat"
+    },
+    {
+      "key": "jenis_permohonan",
+      "label": "Jenis Permohonan",
+      "type": "string",
+      "required": true,
+      "default_value": "peminjaman alat / barang",
+      "group": "pengantar_surat"
+    },
+    {
+      "key": "keperluan_tujuan",
+      "label": "Keperluan atau Tujuan",
+      "type": "string",
+      "required": true,
+      "default_value": "kegiatan Grand Opening Mentoring",
+      "group": "pengantar_surat"
+    },
+    {
+      "key": "nama_kegiatan",
+      "label": "Nama Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Grand Opening Mentoring",
+      "group": "detail_kegiatan"
+    },
+    {
+      "key": "hari_tanggal_kegiatan",
+      "label": "Hari & Tanggal Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Rabu, 7 Oktober 2026",
+      "group": "detail_kegiatan"
+    },
+    {
+      "key": "waktu_kegiatan",
+      "label": "Waktu Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "17.00 – 21.00 WIB",
+      "group": "detail_kegiatan"
+    },
+    {
+      "key": "tempat_kegiatan",
+      "label": "Tempat Kegiatan",
+      "type": "string",
+      "required": true,
+      "default_value": "Lapangan Merah",
+      "group": "detail_kegiatan"
+    },
+    {
+      "key": "nama_barang_1",
+      "label": "Nama Barang 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Tandu",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "jumlah_barang_1",
+      "label": "Jumlah Barang 1",
+      "type": "string",
+      "required": true,
+      "default_value": "1",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "pengambilan_barang_1",
+      "label": "Waktu Pengambilan Barang 1",
+      "type": "string",
+      "required": false,
+      "default_value": "07/10/2026 16.00",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "pengembalian_barang_1",
+      "label": "Waktu Pengembalian Barang 1",
+      "type": "string",
+      "required": false,
+      "default_value": "07/10/2026 21.30",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "nama_barang_2",
+      "label": "Nama Barang 2",
+      "type": "string",
+      "required": false,
+      "default_value": "P3K",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "jumlah_barang_2",
+      "label": "Jumlah Barang 2",
+      "type": "string",
+      "required": false,
+      "default_value": "1 Set",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "pengambilan_barang_2",
+      "label": "Waktu Pengambilan Barang 2",
+      "type": "string",
+      "required": false,
+      "default_value": "07/10/2026 16.00",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "pengembalian_barang_2",
+      "label": "Waktu Pengembalian Barang 2",
+      "type": "string",
+      "required": false,
+      "default_value": "07/10/2026 21.30",
+      "group": "daftar_barang"
+    },
+    {
+      "key": "jabatan_pemohon_1",
+      "label": "Jabatan Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Umum UKKI PENS",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_1",
+      "label": "Nama Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Yusuf Ramadhani Arianto",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_1",
+      "label": "NRP Pemohon 1",
+      "type": "string",
+      "required": true,
+      "default_value": "3124600056",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_1",
+      "label": "QR Tanda Tangan Pemohon 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 1]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_pemohon_2",
+      "label": "Jabatan Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Ketua Pelaksana",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_pemohon_2",
+      "label": "Nama Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Fadhil Muhammad Daffa",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nrp_pemohon_2",
+      "label": "NRP Pemohon 2",
+      "type": "string",
+      "required": true,
+      "default_value": "3124600118",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_pemohon_2",
+      "label": "QR Tanda Tangan Pemohon 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Pemohon 2]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_1",
+      "label": "Jabatan Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_1",
+      "label": "Nama Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_1",
+      "label": "NIP Mengetahui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "199208262022031007",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_1",
+      "label": "QR Tanda Tangan Mengetahui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 1]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_mengetahui_2",
+      "label": "Jabatan Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Pembina UKKI PENS",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_mengetahui_2",
+      "label": "Nama Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "Adnan Rachmat Anom Besari, S.ST., M.Sc., Ph.D",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_mengetahui_2",
+      "label": "NIP Mengetahui 2",
+      "type": "string",
+      "required": true,
+      "default_value": "198509102012121003",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_mengetahui_2",
+      "label": "QR Tanda Tangan Mengetahui 2",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Mengetahui 2]",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "jabatan_menyetujui_1",
+      "label": "Jabatan Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Wakil Direktur Bidang Kemahasiswaan dan Alumni",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nama_menyetujui_1",
+      "label": "Nama Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "Ir. Kholid Fathoni, S.Kom., M.T., IPM.",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "nip_menyetujui_1",
+      "label": "NIP Menyetujui 1",
+      "type": "string",
+      "required": true,
+      "default_value": "198012262008121000",
+      "group": "tanda_tangan"
+    },
+    {
+      "key": "qr_menyetujui_1",
+      "label": "QR Tanda Tangan Menyetujui 1",
+      "type": "image_or_text",
+      "required": true,
+      "default_value": "[QR Code Tanda Tangan Menyetujui 1]",
+      "group": "tanda_tangan"
+    }
+  ],
+  "sample_payload": {
+    "nomor_surat": "6.4/INT/PMH/BPM/UKKI-PENS/X/2026",
+    "perihal": "Permohonan Peminjaman Alat",
+    "lampiran": "-",
+    "kota_surat": "Surabaya",
+    "tanggal_surat": "5 Oktober 2026",
+    "tujuan_surat": "Kepala Departemen Eksternal",
+    "jenis_permohonan": "peminjaman alat / barang",
+    "keperluan_tujuan": "kegiatan Grand Opening Mentoring",
+    "nama_kegiatan": "Grand Opening Mentoring",
+    "hari_tanggal_kegiatan": "Rabu, 7 Oktober 2026",
+    "waktu_kegiatan": "17.00 – 21.00 WIB",
+    "tempat_kegiatan": "Lapangan Merah",
+    "nama_barang_1": "Tandu",
+    "jumlah_barang_1": "1",
+    "pengambilan_barang_1": "07/10/2026 16.00",
+    "pengembalian_barang_1": "07/10/2026 21.30",
+    "nama_barang_2": "P3K",
+    "jumlah_barang_2": "1 Set",
+    "pengambilan_barang_2": "07/10/2026 16.00",
+    "pengembalian_barang_2": "07/10/2026 21.30",
+    "jabatan_pemohon_1": "Ketua Umum UKKI PENS",
+    "nama_pemohon_1": "Yusuf Ramadhani Arianto",
+    "nrp_pemohon_1": "3124600056",
+    "qr_pemohon_1": "[QR Code Tanda Tangan Pemohon 1]",
+    "jabatan_pemohon_2": "Ketua Pelaksana",
+    "nama_pemohon_2": "Fadhil Muhammad Daffa",
+    "nrp_pemohon_2": "3124600118",
+    "qr_pemohon_2": "[QR Code Tanda Tangan Pemohon 2]",
+    "jabatan_mengetahui_1": "Tim Pembinaan Minat dan Bakat Mahasiswa",
+    "nama_mengetahui_1": "Grezio Arifian Primajaya, S.Kom., M.Kom.",
+    "nip_mengetahui_1": "199208262022031007",
+    "qr_mengetahui_1": "[QR Code Tanda Tangan Mengetahui 1]",
+    "jabatan_mengetahui_2": "Pembina UKKI PENS",
+    "nama_mengetahui_2": "Adnan Rachmat Anom Besari, S.ST., M.Sc., Ph.D",
+    "nip_mengetahui_2": "198509102012121003",
+    "qr_mengetahui_2": "[QR Code Tanda Tangan Mengetahui 2]",
+    "jabatan_menyetujui_1": "Wakil Direktur Bidang Kemahasiswaan dan Alumni",
+    "nama_menyetujui_1": "Ir. Kholid Fathoni, S.Kom., M.T., IPM.",
+    "nip_menyetujui_1": "198012262008121000",
+    "qr_menyetujui_1": "[QR Code Tanda Tangan Menyetujui 1]"
+  }
+}

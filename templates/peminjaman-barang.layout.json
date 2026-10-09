@@ -1,0 +1,26 @@
+{
+  "rendererVersion": "signit-pdfsharp-v1",
+  "blocks": [
+    { "kind": "right", "text": "{{kota_surat}}, {{tanggal_surat}}" },
+    { "kind": "paragraph", "text": "Nomor : {{nomor_surat}}" },
+    { "kind": "paragraph", "text": "Perihal : {{perihal}}" },
+    { "kind": "paragraph", "text": "Lampiran : {{lampiran}}" },
+    { "kind": "paragraph", "text": "Kepada Yth.\n{{tujuan_surat}}\ndi tempat" },
+    { "kind": "paragraph", "text": "Assalaamu’alaikum Wa Rahmatullaahi WaBarakaatuh" },
+    { "kind": "paragraph", "text": "Dengan hormat," },
+    { "kind": "paragraph", "text": "Melalui surat ini, kami bermaksud mengajukan permohonan {{jenis_permohonan}} terkait {{keperluan_tujuan}}, dengan harapan permohonan tersebut dapat dipertimbangkan sebagaimana mestinya." },
+    { "kind": "paragraph", "text": "Sehubungan dengan akan diselenggarakannya kegiatan {{nama_kegiatan}} yang Insya’ Allah dilaksanakan pada:" },
+    { "kind": "paragraph", "text": "Hari/Tanggal\t: {{hari_tanggal_kegiatan}}\nWaktu\t: {{waktu_kegiatan}}\nTempat\t: {{tempat_kegiatan}}" },
+    { "kind": "paragraph", "text": "Maka dengan ini kami mengajukan permohonan peminjaman barang sebagai berikut:" },
+    {
+      "kind": "table",
+      "rows": [
+        ["No", "Nama Barang", "Jumlah", "Pengambilan", "Pengembalian"],
+        ["1.", "{{nama_barang_1}}", "{{jumlah_barang_1}}", "{{pengambilan_barang_1}}", "{{pengembalian_barang_1}}"],
+        ["2.", "{{nama_barang_2}}", "{{jumlah_barang_2}}", "{{pengambilan_barang_2}}", "{{pengembalian_barang_2}}"]
+      ]
+    },
+    { "kind": "paragraph", "text": "Demikian surat permohonan ini kami buat untuk digunakan sebagaimana mestinya. Atas perhatian dan izin yang diberikan, kami ucapkan terima kasih." },
+    { "kind": "paragraph", "text": "Wassalaamu’alaikum Wa Rahmatullaahi Wa Barakaatuh" }
+  ]
+}

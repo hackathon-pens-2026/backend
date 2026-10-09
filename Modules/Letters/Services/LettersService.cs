@@ -17,6 +17,12 @@ public sealed record EditDraftRequest(Guid ExpectedVersion, Guid ExpectedRevisio
     string Title, Dictionary<string, string> Fields);
 public sealed record CancelLetterRequest(Guid ExpectedVersion, Guid ExpectedRevisionId, string ExpectedContentHash, string Reason);
 public sealed record CancelLetterDto(Guid Id, LetterStatus Status, Guid Version);
+public sealed record LetterActiveTaskDto(Guid Id, int Order, WorkflowActionType ActionType, string? PositionCode,
+    string? PositionName, DateTimeOffset? ActivatedAt, DateTimeOffset? DueAt, bool IsOverdue);
+public sealed record LetterSummaryDto(Guid Id, string Number, string TypeId, string Title, LetterStatus Status,
+    Guid Version, Guid RevisionId, DateTimeOffset SubmittedAt, DateTimeOffset? CompletedAt,
+    int TotalTasks, int CompletedTasks, LetterActiveTaskDto? ActiveTask);
+public sealed record LetterListDto(int Page, int PageSize, int Total, LetterSummaryDto[] Items);
 
 public sealed class LettersService(AppDbContext db, TemplateCatalog templates, TimeProvider clock)
 {
@@ -42,6 +48,44 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
         db.LetterRevisions.Add(revision);
         await db.SaveChangesAsync(ct);
         return Map(letter, revision);
+    }
+
+    public async Task<LetterListDto> ListAsync(Guid actor, int page, int pageSize, CancellationToken ct)
+    {
+        if (page is < 1 or > 10000 || pageSize is < 1 or > 100)
+            throw new SignItDomainException(DomainErrorKind.Validation, "invalid_pagination", "Page mulai 1; pageSize maksimal 100.");
+        var query = db.LetterRequests.AsNoTracking().Where(x => x.SubmittedByUserId == actor);
+        var total = await query.CountAsync(ct);
+        var letters = await query.OrderByDescending(x => x.SubmittedAt).ThenByDescending(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var revisionIds = letters.Where(x => x.CurrentRevisionId.HasValue).Select(x => x.CurrentRevisionId!.Value).ToArray();
+        var tasks = await db.WorkflowTasks.AsNoTracking().Where(x => revisionIds.Contains(x.RevisionId)).ToListAsync(ct);
+        var orgIds = letters.Where(x => x.OrganizationId.HasValue).Select(x => x.OrganizationId!.Value).Distinct().ToArray();
+        var orgScopes = await db.Organizations.AsNoTracking().Where(x => orgIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Scope, ct);
+        var assignedIds = tasks.Select(x => x.AssignedUserId).Distinct().ToArray();
+        var positionCodes = tasks.Where(x => x.DomainCode != null).Select(x => x.DomainCode!).Distinct().ToArray();
+        var scopes = orgScopes.Values.Distinct().ToArray();
+        var positions = await db.Assignments.AsNoTracking()
+            .Where(x => assignedIds.Contains(x.UserId) && x.PositionCode != null
+                && positionCodes.Contains(x.PositionCode) && scopes.Contains(x.Scope))
+            .Select(x => new { x.UserId, x.PositionCode, x.PositionName, x.Scope }).ToListAsync(ct);
+        var now = clock.GetUtcNow();
+        var items = letters.Select(letter =>
+        {
+            var current = tasks.Where(x => x.RevisionId == letter.CurrentRevisionId).ToArray();
+            var active = current.SingleOrDefault(x => x.Status == WorkflowTaskStatus.Active);
+            var scope = letter.OrganizationId.HasValue && orgScopes.TryGetValue(letter.OrganizationId.Value, out var value) ? value : null;
+            var positionName = active is null ? null : positions.FirstOrDefault(p => p.UserId == active.AssignedUserId
+                && p.PositionCode == active.DomainCode && p.Scope == scope)?.PositionName;
+            return new LetterSummaryDto(letter.Id, letter.Number, letter.TypeId, letter.Title, letter.Status,
+                letter.RowVersion, letter.CurrentRevisionId ?? Guid.Empty, letter.SubmittedAt, letter.CompletedAt,
+                current.Length, current.Count(x => WorkflowTaskAccess.IsDone(x.Status)),
+                active is null ? null : new LetterActiveTaskDto(active.Id, active.Order, active.ActionType,
+                    active.DomainCode, positionName, active.ActivatedAt, active.DueAt,
+                    active.DueAt.HasValue && active.DueAt < now));
+        }).ToArray();
+        return new(page, pageSize, total, items);
     }
 
     public async Task<DraftDto> GetAsync(Guid actor, Guid id, CancellationToken ct)

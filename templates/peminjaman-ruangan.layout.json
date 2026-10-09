@@ -1,0 +1,17 @@
+{
+  "rendererVersion": "signit-pdfsharp-v1",
+  "blocks": [
+    { "kind": "right", "text": "{{kota_surat}}, {{tanggal_surat}}" },
+    { "kind": "paragraph", "text": "Nomor : {{nomor_surat}}" },
+    { "kind": "paragraph", "text": "Perihal : {{perihal}}" },
+    { "kind": "paragraph", "text": "Lampiran : {{lampiran}}" },
+    { "kind": "paragraph", "text": "Kepada Yth.\n{{tujuan_surat_baris_1}}\n{{tujuan_surat_baris_2}}\ndi tempat" },
+    { "kind": "paragraph", "text": "Assalaamu’alaikum Wa Rahmatullaahi WaBarakaatuh" },
+    { "kind": "paragraph", "text": "Dengan hormat," },
+    { "kind": "paragraph", "text": "Melalui surat ini, kami bermaksud mengajukan permohonan {{jenis_permohonan}} terkait {{keperluan_tujuan}}, dengan harapan permohonan tersebut dapat dipertimbangkan sebagaimana mestinya." },
+    { "kind": "paragraph", "text": "Sehubungan dengan akan diselenggarakannya kegiatan {{nama_kegiatan}} yang akan dilaksanakan pada:" },
+    { "kind": "paragraph", "text": "Hari/Tanggal\t: {{hari_tanggal_kegiatan}}\nWaktu\t: {{waktu_kegiatan}}\nTempat\t: {{ruangan_kegiatan}}" },
+    { "kind": "paragraph", "text": "Kami bermaksud meminjam ruangan {{ruangan_kegiatan}} {{fasilitas_tambahan}} untuk digunakan dalam acara tersebut. Demikian surat permohonan kami. Atas perhatian dan kerjasamanya kami ucapkan terima kasih." },
+    { "kind": "paragraph", "text": "Wassalaamu’alaikum Wa Rahmatullaahi Wa Barakaatuh" }
+  ]
+}

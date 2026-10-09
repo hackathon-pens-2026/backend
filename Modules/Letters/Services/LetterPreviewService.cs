@@ -70,9 +70,11 @@ public sealed class LetterPreviewService(AppDbContext db, RoutingService routing
     public async Task<byte[]> DownloadAsync(Guid actor, Guid id, Guid documentId, CancellationToken ct)
     {
         await EnsureOwnerAsync(actor, id, ct);
-        var job = await db.LetterPreviewJobs.AsNoTracking().SingleOrDefaultAsync(x => x.RequestId == id && x.DocumentId == documentId && x.State == "Ready", ct)
+        var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId
+            && x.ProcessingState == "Ready"
+            && (db.LetterPreviewJobs.Any(job => job.RequestId == id && job.DocumentId == documentId && job.State == "Ready")
+                || (x.Kind == DocumentKind.Final && db.LetterRevisions.Any(revision => revision.Id == x.RevisionId && revision.RequestId == id))), ct)
             ?? throw Error(DomainErrorKind.NotFound, "document_not_found", "Dokumen tidak ditemukan.");
-        var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == job.DocumentId, ct);
         var bytes = await storage.ReadBytesAsync(document.StorageKey, ct);
         if (bytes is null || Hash(bytes) != document.Sha256)
             throw Error(DomainErrorKind.Conflict, "review_unavailable", "Dokumen tidak tersedia atau integritasnya tidak sesuai.");
