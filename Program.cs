@@ -106,7 +106,7 @@ if (origins.Any(origin => !Uri.TryCreate(origin, UriKind.Absolute, out var uri)
     throw new InvalidOperationException("Cors:AllowedOrigins hanya menerima exact origin HTTPS (localhost HTTP untuk development).");
 builder.Services.AddCors(options => options.AddPolicy("frontend", policy =>
 {
-    if (origins.Length > 0) policy.WithOrigins(origins).WithMethods("GET", "POST").WithHeaders("Content-Type", "Authorization");
+    if (origins.Length > 0) policy.WithOrigins(origins).WithMethods("GET", "POST").WithHeaders("Content-Type", "Authorization", "Idempotency-Key");
 }));
 builder.Services.AddRateLimiter(options =>
 {

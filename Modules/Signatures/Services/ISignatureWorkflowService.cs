@@ -15,21 +15,5 @@ public interface ISignatureWorkflowService
         string? userAgent,
         CancellationToken ct);
 
-    Task RejectTaskAsync(
-        Guid taskId,
-        Guid actorUserId,
-        string comment,
-        string? ipAddress,
-        string? userAgent,
-        CancellationToken ct);
-
-    Task RequestRevisionTaskAsync(
-        Guid taskId,
-        Guid actorUserId,
-        string comment,
-        string? ipAddress,
-        string? userAgent,
-        CancellationToken ct);
-
     Task<bool> RetryFinalizationAsync(Guid requestId, CancellationToken ct);
 }

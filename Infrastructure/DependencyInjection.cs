@@ -55,6 +55,18 @@ public static class DependencyInjection
         services.AddScoped<SignIt.Modules.Letters.Services.LettersService>();
         services.AddScoped<SignIt.Modules.Letters.Services.LetterSubmissionService>();
         services.AddScoped<SignIt.Modules.Routing.Services.RoutingService>();
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowTaskAccess>();
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowService>();
+        services.AddScoped<SignIt.Modules.Workflow.Services.WorkflowQueryService>();
+        services.AddSingleton<SignIt.Modules.Templates.Services.ILetterTemplateRenderer, SignIt.Modules.Templates.Services.PdfSharpLetterTemplateRenderer>();
+        services.AddScoped<SignIt.Modules.Letters.Services.LetterPreviewService>();
+        services.AddScoped<SignIt.Modules.Letters.Services.LetterPreviewProcessor>();
+        services.AddOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>().Bind(configuration.GetSection("Preview"))
+            .Validate(o => o.PollSeconds is >= 1 and <= 60 && o.RenderTimeoutSeconds is >= 5 and <= 60
+                && o.LeaseSeconds >= o.RenderTimeoutSeconds + 20 && o.LeaseSeconds <= 180,
+                "Konfigurasi worker preview tidak valid.").ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>>().Value);
+        services.AddHostedService<SignIt.Modules.Letters.Services.LetterPreviewWorker>();
         services.AddScoped<SignIt.Modules.Rooms.Services.RoomReservationService>();
 
         services.AddOptions<StorageOptions>().Bind(configuration.GetSection("Storage"));
