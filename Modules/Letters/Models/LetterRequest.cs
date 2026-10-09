@@ -59,6 +59,16 @@ public sealed class LetterRequest
         RowVersion = Guid.NewGuid();
     }
 
+    public void UpdateDraftTitle(string title)
+    {
+        if (Status != LetterStatus.Draft)
+            throw new InvalidOperationException("Hanya draf yang dapat diubah judulnya.");
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("Judul tidak boleh kosong.", nameof(title));
+        Title = title.Trim();
+        RowVersion = Guid.NewGuid();
+    }
+
     public void MarkFinalizing()
     {
         if (Status != LetterStatus.InProgress && Status != LetterStatus.ProcessingFailed

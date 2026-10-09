@@ -123,6 +123,13 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromSeconds(builder.Configuration.GetValue("Auth:RateLimitWindowSeconds", 60)),
             QueueLimit = 0, AutoReplenishment = true
         }));
+    options.AddPolicy("chat", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User?.FindFirst("sub")?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("Llm:RateLimitPermitCount", 20),
+            Window = TimeSpan.FromSeconds(builder.Configuration.GetValue("Llm:RateLimitWindowSeconds", 60)),
+            QueueLimit = 0, AutoReplenishment = true
+        }));
 });
 
 var app = builder.Build();

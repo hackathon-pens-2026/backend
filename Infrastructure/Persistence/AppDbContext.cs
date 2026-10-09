@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SignIt.Modules.Authentication.Models;
+using SignIt.Modules.Chat.Models;
 using SignIt.Modules.Email.Models;
 using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Rooms.Models;
@@ -36,6 +37,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<RoomReservation> RoomReservations => Set<RoomReservation>();
+    public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
+    public DbSet<ChatMessageRecord> ChatMessages => Set<ChatMessageRecord>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -324,5 +327,24 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         roomReservations.HasOne<SignIt.Modules.Routing.Models.FacilityResource>().WithMany()
             .HasForeignKey(x => x.FacilityResourceId).OnDelete(DeleteBehavior.Restrict);
         roomReservations.HasOne<User>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+        var chatSessions = model.Entity<ChatSession>();
+        chatSessions.ToTable("chat_sessions");
+        chatSessions.HasKey(x => x.Id);
+        chatSessions.Property(x => x.TypeId).HasMaxLength(80);
+        chatSessions.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        chatSessions.HasIndex(x => x.UserId);
+        chatSessions.HasIndex(x => x.LetterRequestId);
+        chatSessions.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        chatSessions.HasOne<LetterRequest>().WithMany().HasForeignKey(x => x.LetterRequestId).OnDelete(DeleteBehavior.SetNull);
+
+        var chatMessages = model.Entity<ChatMessageRecord>();
+        chatMessages.ToTable("chat_messages");
+        chatMessages.HasKey(x => x.Id);
+        chatMessages.Property(x => x.FromRole).HasMaxLength(20);
+        chatMessages.Property(x => x.Content).HasMaxLength(8000);
+        chatMessages.Property(x => x.WidgetType).HasMaxLength(50);
+        chatMessages.HasIndex(x => new { x.SessionId, x.CreatedAt });
+        chatMessages.HasOne<ChatSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
     }
 }

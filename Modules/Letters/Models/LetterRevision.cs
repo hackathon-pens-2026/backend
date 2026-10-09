@@ -47,4 +47,13 @@ public sealed class LetterRevision
         if (finalDocumentId == Guid.Empty) throw new ArgumentException("FinalDocumentId tidak boleh kosong.", nameof(finalDocumentId));
         FinalDocumentId = finalDocumentId;
     }
+
+    public void UpdateDraftContent(string dataJson, string contentHash, DateTimeOffset updatedAt)
+    {
+        if (string.IsNullOrWhiteSpace(dataJson)) throw new ArgumentException("DataJson tidak boleh kosong.", nameof(dataJson));
+        if (string.IsNullOrWhiteSpace(contentHash)) throw new ArgumentException("ContentHash tidak boleh kosong.", nameof(contentHash));
+        DataJson = dataJson.Trim();
+        ContentHash = contentHash.Trim();
+        FrozenAt = updatedAt;
+    }
 }
