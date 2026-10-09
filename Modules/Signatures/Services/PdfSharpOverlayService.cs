@@ -21,6 +21,7 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
         string? documentVerificationCode = null,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (sourcePdfBytes == null || sourcePdfBytes.Length < 4)
             throw new SignItDomainException(DomainErrorKind.Validation, "invalid_pdf", "File PDF tidak valid atau kosong.");
 
@@ -45,17 +46,26 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
                 fontBold = new XFont("Arial", 8, XFontStyleEx.Bold);
                 fontSmall = new XFont("Arial", 7, XFontStyleEx.Regular);
             }
-            catch
+            catch (Exception ex)
             {
-                // Fonts unavailable on minimal OS; text drawing will be skipped gracefully
+                throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "signature_fonts_unavailable", ex.Message);
             }
 
             foreach (var item in items)
             {
+                ct.ThrowIfCancellationRequested();
                 if (item.PageIndex < 0 || item.PageIndex >= document.PageCount)
-                    continue;
+                    throw new SignItDomainException(DomainErrorKind.Validation, "signature_slot_invalid", "Halaman slot tanda tangan tidak tersedia.");
 
                 var page = document.Pages[item.PageIndex];
+                if (!double.IsFinite(item.X) || !double.IsFinite(item.Y)
+                    || !double.IsFinite(item.Width) || !double.IsFinite(item.Height)
+                    || !double.IsFinite(item.Rotation) || item.X < 0 || item.Y < 0
+                    || item.Width <= 0 || item.Height <= 0
+                    || item.X + item.Width > page.Width.Point || item.Y + item.Height > page.Height.Point)
+                    throw new SignItDomainException(DomainErrorKind.Validation, "signature_slot_invalid", "Slot tanda tangan berada di luar halaman.");
+                if (item.IsCompleted && item.QrImageBytes is not { Length: > 0 })
+                    throw new SignItDomainException(DomainErrorKind.Validation, "signature_asset_missing", "Slot selesai harus memiliki QR.");
                 using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
 
                 var state = gfx.Save();
@@ -76,8 +86,9 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
                     var qrX = item.X + (item.Width - qrSize) / 2;
                     var qrY = item.Y + 4;
 
-                    using var imgStream = new MemoryStream(item.QrImageBytes);
-                    var qrImage = XImage.FromStream(imgStream);
+                    var embeddingBytes = QrPdfImage.Normalize(item.QrImageBytes);
+                    using var imgStream = new MemoryStream(embeddingBytes, 0, embeddingBytes.Length, false, true);
+                    using var qrImage = XImage.FromStream(imgStream);
                     gfx.DrawImage(qrImage, qrX, qrY, qrSize, qrSize);
 
                     if (fontRegular != null && fontBold != null && fontSmall != null)
@@ -131,7 +142,7 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
                 using var gfx = XGraphics.FromPdfPage(lastPage, XGraphicsPdfPageOptions.Append);
                 if (fontSmall != null)
                 {
-                    var footerText = $"Verifikasi Keaslian Dokumen: signit.kampus/verify/{documentVerificationCode}";
+                    var footerText = $"Kode verifikasi keaslian dokumen: {documentVerificationCode}";
                     gfx.DrawString(footerText, fontSmall, XBrushes.DarkSlateGray,
                         new XPoint(36, lastPage.Height.Point - 20));
                 }
@@ -141,6 +152,7 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
             document.Save(outputStream);
             return Task.FromResult(outputStream.ToArray());
         }
+        catch (OperationCanceledException) { throw; }
         catch (SignItDomainException)
         {
             throw;

@@ -50,7 +50,7 @@ public sealed class SignatureWorkflowAndVerificationTests
         var qrLogger = NullLogger<UserSignatureQrService>.Instance;
         var qrService = new UserSignatureQrService(db, qrGen, storage, clock, qrLogger);
 
-        var pdfOverlay = new WorkflowTestPdfAdapter();
+        var pdfOverlay = new PdfSharpOverlayService();
         var wfLogger = NullLogger<SignatureWorkflowService>.Instance;
         var workflow = new SignatureWorkflowService(db, qrService, qrGen, pdfOverlay, storage, clock, wfLogger, new WorkflowTaskAccess(db, clock));
         var verify = new PublicVerificationService(db);
@@ -58,8 +58,10 @@ public sealed class SignatureWorkflowAndVerificationTests
         return (db, storage, workflow, verify, qrService);
     }
 
-    [Fact]
-    public async Task CompleteWorkflow_TwoSigners_SequentialProgression_AndPublicVerification()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompleteWorkflow_TwoSigners_SequentialProgression_AndPublicVerification(bool tamperReview)
     {
         var (db, storage, workflow, verify, qrService) = CreateTestContext();
 
@@ -129,6 +131,10 @@ public sealed class SignatureWorkflowAndVerificationTests
         Assert.Equal(user1.Id, evidence1.ActorId);
         Assert.Equal("Applicant", evidence1.Role);
         Assert.Equal(contentHash, evidence1.ContentHash);
+        letter.MarkAwaitingResourceResolution();
+        await db.SaveChangesAsync();
+        Assert.False(await workflow.RetryFinalizationAsync(letterId, default));
+        Assert.Equal(WorkflowTaskStatus.Active, task2.Status);
 
         // 4. User 2 approves task 2
         var signReq2 = new SignTaskRequest(revId, contentHash, "Disetujui untuk dilaksanakan", task2.RowVersion);
@@ -137,8 +143,24 @@ public sealed class SignatureWorkflowAndVerificationTests
             idempotencyKey: "key-2", ipAddress: "10.0.0.2", userAgent: "SignItApp", CancellationToken.None);
 
         Assert.Equal(WorkflowTaskStatus.Approved, result2.Status);
-        Assert.True(result2.IsWorkflowCompleted);
-        Assert.NotNull(result2.VerificationCode);
+        Assert.False(result2.IsWorkflowCompleted);
+        Assert.Null(result2.VerificationCode);
+        Assert.Equal(LetterStatus.Finalizing, letter.Status);
+        var review = await db.Documents.SingleAsync(x => x.Id == reviewId);
+        var originalReview = await storage.ReadBytesAsync(review.StorageKey, default);
+        if (tamperReview)
+        {
+            await storage.SaveAsync(review.StorageKey, "%PDF-corrupt"u8.ToArray(), "application/pdf", default);
+            Assert.False(await workflow.RetryFinalizationAsync(letterId, default));
+            Assert.Equal(LetterStatus.ProcessingFailed, letter.Status);
+            Assert.Equal(2, await db.SignatureEvidences.CountAsync());
+            Assert.False(await db.Documents.AnyAsync(x => x.Kind == DocumentKind.Final));
+            await storage.SaveAsync(review.StorageKey, originalReview!, "application/pdf", default);
+        }
+        Assert.True(await workflow.RetryFinalizationAsync(letterId, default));
+        Assert.False(await workflow.RetryFinalizationAsync(letterId, default));
+        Assert.Equal(2, await db.SignatureEvidences.CountAsync());
+        var verificationCode = (await db.VerificationRecords.SingleAsync(x => x.RequestId == letterId)).RandomCode;
 
         // 5. Verify Letter is now Completed
         var completedLetter = await db.LetterRequests.FindAsync(letterId);
@@ -146,8 +168,8 @@ public sealed class SignatureWorkflowAndVerificationTests
         Assert.NotNull(completedLetter.CompletedAt);
 
         // 6. Public Verification by Code
-        var publicInfo = await verify.VerifyByCodeAsync(result2.VerificationCode!, CancellationToken.None);
-        Assert.Equal(result2.VerificationCode, publicInfo.VerificationCode);
+        var publicInfo = await verify.VerifyByCodeAsync(verificationCode, CancellationToken.None);
+        Assert.Equal(verificationCode, publicInfo.VerificationCode);
         Assert.Equal("Valid", publicInfo.Status);
         Assert.Equal("SURAT/2026/001", publicInfo.LetterNumber);
         Assert.Equal(2, publicInfo.Signers.Count);
@@ -163,7 +185,7 @@ public sealed class SignatureWorkflowAndVerificationTests
         using var uploadStream = new MemoryStream(finalBytes);
         var uploadResult = await verify.VerifyByUploadAsync(uploadStream, finalBytes.Length, CancellationToken.None);
         Assert.True(uploadResult.Matches);
-        Assert.Equal(result2.VerificationCode, uploadResult.VerificationCode);
+        Assert.Equal(verificationCode, uploadResult.VerificationCode);
 
         // 8. Verify Tampered file upload fails
         var tamperedBytes = (byte[])finalBytes.Clone();

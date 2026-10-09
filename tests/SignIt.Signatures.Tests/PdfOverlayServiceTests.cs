@@ -22,11 +22,13 @@ public sealed class PdfOverlayServiceTests
         Assert.Equal(0x46, bytes[3]); // F
     }
 
-    [Fact]
-    public async Task OverlaySignatures_WithCompletedAndPendingSlots_RendersSuccessfully()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OverlaySignatures_WithCompletedAndPendingSlots_RendersSuccessfully(bool png)
     {
         var basePdf = _service.GeneratePlaceholderPdf("Proposal Kegiatan", "PROP/001", "Rencana kegiatan kampus.");
-        var qrBytes = _qr.GenerateBmp("signit:sig:testuserqr");
+        var qrBytes = png ? _qr.GeneratePng("signit:sig:testuserqr") : _qr.GenerateBmp("signit:sig:testuserqr");
 
         var items = new List<PdfSignatureOverlayItem>
         {

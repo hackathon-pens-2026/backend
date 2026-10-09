@@ -14,12 +14,23 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
     private static readonly Regex Placeholder = new(@"\{\{([a-z0-9_]+)\}\}", RegexOptions.CultureInvariant);
 
     public RenderedPreview Render(PreviewRenderInput input, CancellationToken ct)
+        => RenderInternal(input, false, ct);
+
+    public RenderedPreview RenderFinal(PreviewRenderInput input, string number, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(number) || number.StartsWith("DRAFT", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Nomor final belum tersedia.");
+        var fields = new Dictionary<string, string>(input.Fields) { ["nomor_surat"] = number };
+        return RenderInternal(input with { Fields = fields }, true, ct);
+    }
+
+    private RenderedPreview RenderInternal(PreviewRenderInput input, bool final, CancellationToken ct)
     {
         if (input.Layout.RendererVersion != Version) throw new InvalidOperationException("Versi renderer tidak tersedia.");
         if (input.Participants.Length is < 5 or > 7 || input.Participants.Select(x => x.Stage.PositionCode).Distinct().Count() != input.Participants.Length)
             throw new InvalidOperationException("Peserta routing tidak valid.");
         SignItFontResolver.EnsureRegistered();
-        using var canvas = new LayoutCanvas(input, ct);
+        using var canvas = new LayoutCanvas(input, final, ct);
         if (input.Layout.CoverTitle is { } cover)
         {
             canvas.Space(130);
@@ -58,14 +69,16 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
         private const double Margin = 48, Bottom = 780, Width = 499;
         private readonly PreviewRenderInput input;
         private readonly CancellationToken ct;
+        private readonly bool final;
         private readonly PdfDocument pdf = new();
         private XGraphics graphics = null!;
         private double y;
 
-        public LayoutCanvas(PreviewRenderInput input, CancellationToken ct)
+        public LayoutCanvas(PreviewRenderInput input, bool final, CancellationToken ct)
         {
             this.input = input;
             this.ct = ct;
+            this.final = final;
             pdf.Info.Title = input.Title;
             pdf.Info.Author = "SignIt";
             pdf.Info.Subject = input.TemplateVersionId;
@@ -87,7 +100,7 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
             Paragraph("POLITEKNIK ELEKTRONIKA NEGERI SURABAYA", 11, true, "center");
             graphics.DrawLine(XPens.Black, Margin, y, Margin + Width, y);
             y += 22;
-            graphics.DrawString("DRAFT - Belum diajukan / belum ditandatangani", Font(8), XBrushes.Gray,
+            graphics.DrawString(final ? "Dokumen final - tanda tangan elektronik tercatat di SignIt" : "DRAFT - Belum diajukan / belum ditandatangani", Font(8), XBrushes.Gray,
                 new XRect(Margin, 802, Width, 12), XStringFormats.TopLeft);
             graphics.DrawString($"{pdf.PageCount}", Font(8), XBrushes.Gray,
                 new XRect(Margin, 802, Width, 12), XStringFormats.TopRight);

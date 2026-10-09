@@ -76,6 +76,9 @@ public sealed class TemplateRendererTests
         var input = new PreviewRenderInput(type, template.TemplateId + ":" + template.Version, hash,
             "Pelatihan Teknologi Mahasiswa", Guid.NewGuid(), null, Fields(template), Participants(count, type), layout);
         var rendered = new PdfSharpLetterTemplateRenderer().Render(input, default);
+        var final = new PdfSharpLetterTemplateRenderer().RenderFinal(input, "SGN-00000000000000000000000000000001", default);
+        Assert.Equal(rendered.Slots, final.Slots);
+        Assert.StartsWith("DRAFT", input.Fields["nomor_surat"]);
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(rendered.Bytes, 0, 4));
         Assert.Equal(count, rendered.Slots.Length);
         using var pdf = PdfReader.Open(new MemoryStream(rendered.Bytes), PdfDocumentOpenMode.Import);
@@ -93,6 +96,12 @@ public sealed class TemplateRendererTests
         var output = Path.Combine(environment.ContentRootPath, ".data", "renderer-qa");
         Directory.CreateDirectory(output);
         await File.WriteAllBytesAsync(Path.Combine(output, type + ".pdf"), rendered.Bytes);
+        var overlay = new SignIt.Modules.Signatures.Services.PdfSharpOverlayService();
+        var qr = new SignIt.Modules.Signatures.Services.QRCoderGenerator().GeneratePng("signit:sig:final-qa");
+        var signed = await overlay.OverlaySignaturesAsync(final.Bytes, final.Slots.Select(s =>
+            new SignIt.Modules.Signatures.Services.PdfSignatureOverlayItem(s.PageIndex, s.X, s.Y, s.Width, s.Height,
+                0, qr, "Demo Penandatangan", s.PositionCode, DateTimeOffset.UtcNow, true)).ToArray(), "SIG-QA-FINAL");
+        await File.WriteAllBytesAsync(Path.Combine(output, type + "-final.pdf"), signed);
     }
 
     [Fact]
