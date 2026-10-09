@@ -1,30 +1,26 @@
 # ==========================================
-# Multi-stage Dockerfile for .NET 8 Web API
+# Multi-stage Dockerfile for .NET 10 Web API
 # ==========================================
 
 # Stage 1: Runtime Base
-# Uses Microsoft ASP.NET Core 8.0 Linux Alpine/Ubuntu chiseled/standard runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+# Uses Microsoft ASP.NET Core 10.0 Linux runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
-# Default ASP.NET Core 8 port in non-root user mode is 8080
+# Default ASP.NET Core port in non-root user mode is 8080
 EXPOSE 8080
 EXPOSE 8081
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Stage 2: SDK Build & Restore
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
 # Leverage Docker layer caching: copy solution / csproj files first and restore
 COPY ["*.csproj", "./"]
 RUN dotnet restore
-
-# Copy remaining source code and build
-COPY . .
 RUN dotnet build -c $BUILD_CONFIGURATION -o /app/build --no-restore
-
 # Stage 3: Publish
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
@@ -36,8 +32,16 @@ WORKDIR /app
 # Copy published DLLs from publish stage
 COPY --from=publish /app/publish .
 
+<<<<<<< HEAD
 # Use non-root user (built-in 'app' user in .NET 8 images) for enhanced container security
 USER app
 
 # Entrypoint: uses backend.dll matching backend.csproj
 ENTRYPOINT ["dotnet", "backend.dll"]
+=======
+# Use the built-in non-root 'app' user for enhanced container security
+USER app
+
+# Entrypoint matches <AssemblyName>SignIt.Api</AssemblyName>
+ENTRYPOINT ["dotnet", "SignIt.Api.dll"]
+>>>>>>> f8325ec6db16000f20296ae97cc94a99a1a71d32
