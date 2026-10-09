@@ -5,6 +5,7 @@ using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
 using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Rooms.Services;
 using SignIt.Modules.Signatures.DTOs;
 using SignIt.Modules.Signatures.Models;
 using SignIt.Modules.Workflow.Models;
@@ -18,6 +19,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
     private readonly IQrCodeGenerator _qrGenerator;
     private readonly IPdfOverlayService _pdfOverlay;
     private readonly IStorageService _storage;
+    private readonly RoomReservationService _roomReservations;
     private readonly TimeProvider _clock;
     private readonly ILogger<SignatureWorkflowService> _logger;
 
@@ -27,6 +29,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         IQrCodeGenerator qrGenerator,
         IPdfOverlayService pdfOverlay,
         IStorageService storage,
+        RoomReservationService roomReservations,
         TimeProvider clock,
         ILogger<SignatureWorkflowService> logger)
     {
@@ -35,6 +38,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         _qrGenerator = qrGenerator;
         _pdfOverlay = pdfOverlay;
         _storage = storage;
+        _roomReservations = roomReservations;
         _clock = clock;
         _logger = logger;
     }
@@ -132,9 +136,46 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         if (letterRequest == null)
             throw new SignItDomainException(DomainErrorKind.NotFound, "letter_request_not_found", "Pengajuan surat tidak ditemukan.");
 
-        if (letterRequest.CurrentRevisionId != revision.Id || letterRequest.Status != LetterStatus.InProgress)
+        if (letterRequest.CurrentRevisionId != revision.Id
+            || letterRequest.Status is not (LetterStatus.InProgress or LetterStatus.AwaitingResourceResolution))
             throw new SignItDomainException(DomainErrorKind.Conflict, "inactive_letter_revision",
                 "Revisi ini tidak lagi aktif untuk ditandatangani. Muat ulang pengajuan surat.");
+
+        // 5b. Final decision: commit facility reservations atomically before accepting the last approval.
+        var allRevisionTasks = await _db.WorkflowTasks
+            .Where(x => x.RevisionId == revision.Id)
+            .OrderBy(x => x.Order)
+            .ToListAsync(ct);
+
+        var remainingTasks = allRevisionTasks
+            .Where(x => x.Id != currentTask.Id && x.Status != WorkflowTaskStatus.Signed
+                && x.Status != WorkflowTaskStatus.Approved && x.Status != WorkflowTaskStatus.Acknowledged)
+            .OrderBy(x => x.Order)
+            .ToList();
+
+        if (remainingTasks.Count == 0)
+        {
+            // The database exclusion constraint decides the winner; the loser is deferred, not approved.
+            var confirmation = await _roomReservations.TryConfirmForRevisionAsync(revision.Id, ct);
+            if (!confirmation.Confirmed)
+            {
+                letterRequest.MarkAwaitingResourceResolution();
+                _db.AuditLogs.Add(AuditLog.Record(
+                    actorUserId,
+                    "letter.resource_conflict",
+                    "LetterRequest",
+                    letterRequest.Id,
+                    revision.Id,
+                    now,
+                    correlationId: Guid.NewGuid().ToString("N"),
+                    details: "Keputusan final ditunda: jadwal fasilitas bentrok dengan reservasi terkonfirmasi lain.",
+                    ipAddress: ipAddress,
+                    userAgent: userAgent));
+                await _db.SaveChangesAsync(ct);
+                throw new SignItDomainException(DomainErrorKind.Conflict, "resource_schedule_conflict",
+                    "Jadwal fasilitas bentrok dengan reservasi terkonfirmasi lain. Keputusan final ditunda sampai konflik selesai.");
+            }
+        }
 
         // 5. Retrieve or Lazy-provision Actor's QR
         var actorQr = await _qrService.EnsureActiveEntityAsync(actorUserId, ct);
@@ -215,17 +256,6 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
             userAgent: userAgent));
 
         // 10. Sequential Workflow Progression
-        var allRevisionTasks = await _db.WorkflowTasks
-            .Where(x => x.RevisionId == revision.Id)
-            .OrderBy(x => x.Order)
-            .ToListAsync(ct);
-
-        var remainingTasks = allRevisionTasks
-            .Where(x => x.Id != currentTask.Id && x.Status != WorkflowTaskStatus.Signed
-                && x.Status != WorkflowTaskStatus.Approved && x.Status != WorkflowTaskStatus.Acknowledged)
-            .OrderBy(x => x.Order)
-            .ToList();
-
         var isWorkflowCompleted = false;
         string? verificationCode = null;
 
@@ -355,11 +385,18 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
     {
         var letterRequest = await _db.LetterRequests.SingleOrDefaultAsync(x => x.Id == requestId, ct);
         if (letterRequest == null) return false;
-        if (letterRequest.Status != LetterStatus.ProcessingFailed && letterRequest.Status != LetterStatus.Finalizing)
+        if (letterRequest.Status != LetterStatus.ProcessingFailed && letterRequest.Status != LetterStatus.Finalizing
+            && letterRequest.Status != LetterStatus.AwaitingResourceResolution)
             return false;
 
         var revision = await _db.LetterRevisions.SingleOrDefaultAsync(x => x.Id == letterRequest.CurrentRevisionId, ct);
         if (revision == null) return false;
+
+        if (letterRequest.Status == LetterStatus.AwaitingResourceResolution)
+        {
+            var confirmation = await _roomReservations.TryConfirmForRevisionAsync(revision.Id, ct);
+            if (!confirmation.Confirmed) return false;
+        }
 
         await FinalizeDocumentInternalAsync(letterRequest, revision, ct);
         await _db.SaveChangesAsync(ct);
