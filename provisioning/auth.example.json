@@ -1,0 +1,64 @@
+{
+  "users": [
+    {
+      "id": "10000000-0000-0000-0000-000000000001",
+      "name": "Mahasiswa Demo",
+      "email": "student@signit.example",
+      "nimNip": null,
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_SEED_STUDENT_PASSWORD",
+      "emailVerified": false,
+      "assignments": []
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000002",
+      "name": "Dagri Demo",
+      "email": "dagri@signit.example",
+      "nimNip": null,
+      "category": "StudentDagri",
+      "passwordEnvironmentVariable": "SIGNIT_SEED_DAGRI_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "20000000-0000-0000-0000-000000000001",
+          "positionCode": "DAGRI_BEM",
+          "positionName": "Dagri BEM",
+          "scope": "organization:bem-demo",
+          "capability": "Approver",
+          "validFrom": "2026-10-09T00:00:00Z",
+          "validTo": "2027-10-09T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000003",
+      "name": "BAAK Demo",
+      "email": "baak@signit.example",
+      "nimNip": null,
+      "category": "BAAK",
+      "passwordEnvironmentVariable": "SIGNIT_SEED_BAAK_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "20000000-0000-0000-0000-000000000002",
+          "positionCode": "BAAK",
+          "positionName": "Kesekretariatan BAAK",
+          "scope": "unit:baak-demo",
+          "capability": "UnitOperator",
+          "validFrom": "2026-10-09T00:00:00Z",
+          "validTo": null
+        }
+      ]
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000004",
+      "name": "Manajemen Demo",
+      "email": "management@signit.example",
+      "nimNip": null,
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_SEED_MANAGEMENT_PASSWORD",
+      "emailVerified": false,
+      "assignments": []
+    }
+  ]
+}
