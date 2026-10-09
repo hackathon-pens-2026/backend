@@ -9,8 +9,10 @@ using SignIt.Modules.Authentication.Data;
 using SignIt.Modules.Email.Data;
 using SignIt.Modules.Email.Services;
 using SignIt.Infrastructure.Email;
+using SignIt.Infrastructure.Llm;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
+using SignIt.Modules.Chat.Services;
 using SignIt.Modules.Signatures.Services;
 
 namespace SignIt.Infrastructure;
@@ -71,6 +73,18 @@ public static class DependencyInjection
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>>().Value);
         services.AddHostedService<SignIt.Modules.Letters.Services.LetterPreviewWorker>();
         services.AddScoped<SignIt.Modules.Rooms.Services.RoomReservationService>();
+        services.AddScoped<LetterChatOrchestrator>();
+
+        services.AddOptions<LlmOptions>().Bind(configuration.GetSection("Llm"))
+            .Validate(o => o.TimeoutSeconds is >= 5 and <= 120, "Llm:TimeoutSeconds harus antara 5 dan 120 detik.");
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<LlmOptions>>().Value);
+        services.AddHttpClient<ILlmClient, OpenAiCompatibleLlmClient>((sp, client) =>
+        {
+            var llmOpts = sp.GetRequiredService<LlmOptions>();
+            var baseUri = llmOpts.BaseUrl.TrimEnd('/') + "/";
+            client.BaseAddress = new Uri(baseUri);
+            client.Timeout = TimeSpan.FromSeconds(llmOpts.TimeoutSeconds);
+        });
 
         services.AddOptions<StorageOptions>().Bind(configuration.GetSection("Storage"));
         services.AddSingleton<IStorageService, LocalStorageService>();

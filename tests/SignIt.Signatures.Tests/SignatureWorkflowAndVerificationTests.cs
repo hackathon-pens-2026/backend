@@ -8,6 +8,7 @@ using SignIt.Infrastructure.Storage;
 using SignIt.Modules.Authentication.Models;
 using SignIt.Modules.Email.Services;
 using SignIt.Modules.Letters.Models;
+using SignIt.Modules.Rooms.Services;
 using SignIt.Modules.Signatures.DTOs;
 using SignIt.Modules.Signatures.Models;
 using SignIt.Modules.Signatures.Services;
@@ -53,10 +54,11 @@ public sealed class SignatureWorkflowAndVerificationTests
         var qrService = new UserSignatureQrService(db, qrGen, storage, clock, qrLogger);
 
         var pdfOverlay = new PdfSharpOverlayService();
+        var roomReservations = new RoomReservationService(db, clock);
         var wfLogger = NullLogger<SignatureWorkflowService>.Instance;
         var emails = new WorkflowEmailService(db, new ResetEmailOptions { AppBaseUrl = "https://app.signit.test" }, clock);
         var workflow = new SignatureWorkflowService(db, qrService, qrGen, pdfOverlay, storage, clock, wfLogger,
-            new WorkflowTaskAccess(db, clock), emails, new WorkflowOptions());
+            new WorkflowTaskAccess(db, clock), emails, new WorkflowOptions(), roomReservations);
         var verify = new PublicVerificationService(db);
 
         return (db, storage, workflow, verify, qrService);

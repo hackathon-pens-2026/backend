@@ -16,9 +16,10 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
         var result = new List<LetterTemplateDto>();
         foreach (var type in Types)
         {
-            var path = Path.Combine(environment.ContentRootPath, "templates", $"{type}.json");
-            if (!File.Exists(path))
-                path = Path.Combine(environment.ContentRootPath, "..", "templates", $"{type}.json");
+            var fileName = $"{type}.json";
+            var path = ResolveTemplatePath(fileName)
+                ?? throw new FileNotFoundException($"Template schema '{fileName}' tidak ditemukan.");
+
             await using var stream = File.OpenRead(path);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var root = document.RootElement;
@@ -47,8 +48,8 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
         string Resolve(string name)
         {
             if (Path.GetFileName(name) != name) throw new InvalidOperationException("Nama aset template tidak valid.");
-            var path = Path.Combine(environment.ContentRootPath, "templates", name);
-            return File.Exists(path) ? path : Path.Combine(environment.ContentRootPath, "..", "templates", name);
+            return ResolveTemplatePath(name)
+                ?? throw new FileNotFoundException($"Aset template '{name}' tidak ditemukan.");
         }
         var layoutBytes = await File.ReadAllBytesAsync(Resolve(template.TypeId + ".layout.json"), ct);
         var layout = JsonSerializer.Deserialize<TemplateRenderLayout>(layoutBytes, new JsonSerializerOptions(JsonSerializerDefaults.Web))
@@ -58,5 +59,19 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var bytes in new[] { schema, layoutBytes, source }) hash.AppendData(bytes);
         return (layout, Convert.ToHexStringLower(hash.GetHashAndReset()));
+    }
+
+    private string? ResolveTemplatePath(string name)
+    {
+        var current = new DirectoryInfo(environment.ContentRootPath);
+        while (current != null)
+        {
+            var p1 = Path.Combine(current.FullName, "templates", name);
+            if (File.Exists(p1)) return p1;
+            var p2 = Path.Combine(current.FullName, "surat", "templates", name);
+            if (File.Exists(p2)) return p2;
+            current = current.Parent;
+        }
+        return null;
     }
 }
