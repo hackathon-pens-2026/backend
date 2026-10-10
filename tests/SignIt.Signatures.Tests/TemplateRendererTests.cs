@@ -24,6 +24,21 @@ public sealed class TemplateTestEnvironment : IHostEnvironment
 
 public sealed class TemplateRendererTests
 {
+    [Fact]
+    public void PdfFonts_AreAvailableForRegularAndBoldSerifAndSans()
+    {
+        var resolver = new SignIt.Modules.Signatures.Services.SignItFontResolver();
+        foreach (var family in new[] { "Times New Roman", "Arial" })
+        foreach (var bold in new[] { false, true })
+        {
+            var face = resolver.ResolveTypeface(family, bold, false);
+            Assert.NotNull(face);
+            var bytes = resolver.GetFont(face.FaceName);
+            Assert.NotNull(bytes);
+            Assert.NotEmpty(bytes);
+        }
+    }
+
     internal static Dictionary<string, string> Fields(LetterTemplateDto template)
     {
         var values = template.Fields.ToDictionary(x => x.Key, x => x.ValueSource == "user" ? "Contoh " + x.Label.ToLowerInvariant() : "");

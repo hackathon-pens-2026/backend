@@ -16,6 +16,9 @@ FROM facilities f JOIN (
  UNION ALL SELECT 'PS', 'PS 06 AUDITORIUM', 6
  UNION ALL SELECT 'PS', 'PS 06 MINI THEATER', 6
  UNION ALL SELECT 'D3', 'D3 THEATER', NULL::integer
+ UNION ALL SELECT 'D4', block || floor::text || lpad(room::text,2,'0'), floor
+ FROM (VALUES ('A'),('B')) blocks(block)
+ CROSS JOIN generate_series(1,3) floor CROSS JOIN generate_series(1,7) room
  UNION ALL SELECT code, name, NULL::integer FROM (VALUES ('LAPANGAN_MERAH','Lapangan Merah'),('LAPANGAN_FUTSAL','Lapangan Futsal'),('LAPANGAN_BASKET','Lapangan Basket')) v(code,name)
 ) r ON r.facility=f."Code"
 ON CONFLICT ("FacilityId","Code") DO NOTHING;

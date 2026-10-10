@@ -52,7 +52,7 @@ public sealed class LetterPreviewProcessor(AppDbContext db, ILetterTemplateRende
         catch (Exception ex)
         {
             failure = ex is OperationCanceledException ? "preview_render_timeout" : "preview_render_failed";
-            logger.LogWarning("Preview {JobId} gagal: {ErrorType}", jobId, ex.GetType().Name);
+            logger.LogWarning(ex, "Preview {JobId} gagal: {ErrorType}", jobId, ex.GetType().Name);
         }
 
         await using var completion = await db.Database.BeginTransactionAsync(ct);
@@ -107,7 +107,7 @@ public sealed class LetterPreviewWorker(IServiceScopeFactory scopes, PreviewWork
                 if (await scope.ServiceProvider.GetRequiredService<LetterPreviewProcessor>().ProcessNextAsync(stoppingToken)) continue;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { logger.LogWarning("Worker preview belum dapat memproses job: {ErrorType}", ex.GetType().Name); }
+            catch (Exception ex) { logger.LogWarning(ex, "Worker preview belum dapat memproses job: {ErrorType}", ex.GetType().Name); }
             try { await Task.Delay(TimeSpan.FromSeconds(options.PollSeconds), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }

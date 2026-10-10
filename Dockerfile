@@ -5,6 +5,9 @@
 # Stage 1: Runtime Base
 # Uses Microsoft ASP.NET Core 10.0 Linux runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Default ASP.NET Core port in non-root user mode is 8080
 EXPOSE 8080

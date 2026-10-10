@@ -66,7 +66,8 @@ public sealed class SignItFontResolver : IFontResolver
             }
         }
 
-        return null;
+        throw new InvalidOperationException(
+            $"Font PDF '{faceName}' tidak tersedia. Pasang fonts-dejavu-core pada image backend.");
     }
 
     public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic)

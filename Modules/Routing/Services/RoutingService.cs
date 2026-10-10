@@ -53,8 +53,8 @@ public sealed class RoutingService(AppDbContext db, TimeProvider clock)
             if (candidates.Length != 1)
                 throw new SignItDomainException(DomainErrorKind.Conflict, "routing_unresolved", $"Assignment {code} tidak tersedia atau ambigu pada scope ini.");
             var assignment = candidates[0];
-            if (code == "Dagri" && assignment.UserId == requester)
-                throw new SignItDomainException(DomainErrorKind.Conflict, "self_approval_blocked", "Pengaju tidak dapat menyetujui tugas Dagri miliknya sendiri.");
+            if (!selected.HasValue && assignment.UserId == requester)
+                throw new SignItDomainException(DomainErrorKind.Conflict, "self_approval_blocked", "Pengaju tidak dapat menyetujui pengajuannya sendiri sebagai pejabat approver.");
             var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == assignment.UserId && x.IsActive, ct);
             if (user == null)
                 throw new SignItDomainException(DomainErrorKind.Conflict, "inactive_participant", "Akun peserta tidak aktif.");
