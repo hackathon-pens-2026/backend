@@ -484,3 +484,5 @@ $RECYCLE.BIN/
 # SignIt local secrets, Data Protection keys and provisioning manifests
 .data/
 provisioning.local.json
+
+AGENTS.md
