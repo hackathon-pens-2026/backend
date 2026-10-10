@@ -116,6 +116,8 @@ public sealed class SignatureWorkflowAndVerificationTests
         await db.SaveChangesAsync();
 
         // 3. User 1 signs task 1
+        var signatureDocuments = new SignatureDocumentService(db, storage, new QRCoderGenerator(), new PdfSharpOverlayService());
+        Assert.Empty(await signatureDocuments.BuildOverlaysAsync(revision, false, default));
         var signReq1 = new SignTaskRequest(revId, contentHash, "Saya setujui selaku ketupel", task1.RowVersion);
         var result1 = await workflow.ExecuteTaskActionAsync(
             task1.Id, user1.Id, WorkflowActionType.Sign, signReq1,
@@ -137,6 +139,14 @@ public sealed class SignatureWorkflowAndVerificationTests
         Assert.Equal(user1.Id, evidence1.ActorId);
         Assert.Equal("Applicant", evidence1.Role);
         Assert.Equal(contentHash, evidence1.ContentHash);
+        Assert.Single(await signatureDocuments.BuildOverlaysAsync(revision, false, default));
+        Assert.NotEmpty(await signatureDocuments.RenderAsync(revision, default));
+        var qrAsset = await db.SignatureQrs.SingleAsync(x => x.Id == evidence1.QrAssetId);
+        var savedQr = await storage.ReadBytesAsync(qrAsset.PrivateStorageKey, default);
+        await storage.SaveAsync(qrAsset.PrivateStorageKey, "invalid-qr"u8.ToArray(), "image/png", default);
+        var assetError = await Assert.ThrowsAsync<SignItDomainException>(() => signatureDocuments.RenderAsync(revision, default));
+        Assert.Equal("signature_asset_invalid", assetError.Code);
+        await storage.SaveAsync(qrAsset.PrivateStorageKey, savedQr!, "image/png", default);
         letter.MarkAwaitingResourceResolution();
         await db.SaveChangesAsync();
         Assert.False(await workflow.RetryFinalizationAsync(letterId, default));
@@ -187,6 +197,7 @@ public sealed class SignatureWorkflowAndVerificationTests
         Assert.NotNull(finalDoc);
         var finalBytes = await storage.ReadBytesAsync(finalDoc.StorageKey, CancellationToken.None);
         Assert.NotNull(finalBytes);
+        Assert.Equal(finalBytes, await signatureDocuments.RenderAsync(revision, default));
 
         using var uploadStream = new MemoryStream(finalBytes);
         var uploadResult = await verify.VerifyByUploadAsync(uploadStream, finalBytes.Length, CancellationToken.None);

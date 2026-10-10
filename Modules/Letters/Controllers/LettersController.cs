@@ -13,8 +13,11 @@ public sealed class LettersController(LettersService letters, RoutingService rou
     LetterPreviewService previews) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<LetterListDto>> List(CancellationToken ct, int page = 1, int pageSize = 20)
-        => Ok(await letters.ListAsync(User.GetUserId(), page, pageSize, ct));
+    public async Task<ActionResult<LetterListDto>> List(CancellationToken ct, int page = 1, int pageSize = 20, string? search = null)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await letters.ListAsync(User.GetUserId(), page, pageSize, search, ct));
+    }
 
     [HttpPost("drafts")]
     [RequestSizeLimit(256 * 1024)]

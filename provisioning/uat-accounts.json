@@ -1,0 +1,285 @@
+{
+  "users": [
+    {
+      "id": "aa202610-0010-4000-8000-000000000001",
+      "name": "UAT Pengaju Himpunan",
+      "email": "uat.pengaju-himpunan@demo.signit.example",
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000010",
+          "positionCode": "Pengaju",
+          "positionName": "Pengaju Himpunan",
+          "scope": "uat-himpunan",
+          "capability": "Requester",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000002",
+      "name": "UAT Pengaju Organisasi",
+      "email": "uat.pengaju-organisasi@demo.signit.example",
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000020",
+          "positionCode": "Pengaju",
+          "positionName": "Pengaju Organisasi",
+          "scope": "uat-organisasi",
+          "capability": "Requester",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000003",
+      "name": "UAT Ketua Pelaksana",
+      "email": "uat.ketupel@demo.signit.example",
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000030",
+          "positionCode": "Ketupel",
+          "positionName": "Ketua Pelaksana",
+          "scope": "uat-himpunan",
+          "capability": "Signer",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000031",
+          "positionCode": "Ketupel",
+          "positionName": "Ketua Pelaksana",
+          "scope": "uat-organisasi",
+          "capability": "Signer",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000004",
+      "name": "UAT Ketua Organisasi",
+      "email": "uat.ketua@demo.signit.example",
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000040",
+          "positionCode": "KetuaOrganisasi",
+          "positionName": "Ketua Organisasi",
+          "scope": "uat-himpunan",
+          "capability": "Signer",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000041",
+          "positionCode": "KetuaOrganisasi",
+          "positionName": "Ketua Organisasi",
+          "scope": "uat-organisasi",
+          "capability": "Signer",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000005",
+      "name": "UAT Pembina Organisasi",
+      "email": "uat.pembina@demo.signit.example",
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000050",
+          "positionCode": "Pembina",
+          "positionName": "Pembina Organisasi",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000051",
+          "positionCode": "Pembina",
+          "positionName": "Pembina Organisasi",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000006",
+      "name": "UAT Kemahasiswaan",
+      "email": "uat.kemahasiswaan@demo.signit.example",
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000060",
+          "positionCode": "Kemahasiswaan",
+          "positionName": "Kemahasiswaan",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000007",
+      "name": "UAT Tim Pembina Minat dan Bakat",
+      "email": "uat.minat-bakat@demo.signit.example",
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000070",
+          "positionCode": "MinatBakat",
+          "positionName": "Tim Pembina Minat dan Bakat",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000008",
+      "name": "UAT Dagri BEM",
+      "email": "uat.dagri@demo.signit.example",
+      "category": "StudentDagri",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000080",
+          "positionCode": "Dagri",
+          "positionName": "Dagri BEM",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000081",
+          "positionCode": "Dagri",
+          "positionName": "Dagri BEM",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000009",
+      "name": "UAT BAAK",
+      "email": "uat.baak@demo.signit.example",
+      "category": "BAAK",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000090",
+          "positionCode": "BAAK",
+          "positionName": "BAAK",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000091",
+          "positionCode": "BAAK",
+          "positionName": "BAAK",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000010",
+      "name": "UAT Wakil Direktur III",
+      "email": "uat.wadir3@demo.signit.example",
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000100",
+          "positionCode": "Wadir3",
+          "positionName": "Wakil Direktur III",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000101",
+          "positionCode": "Wadir3",
+          "positionName": "Wakil Direktur III",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000011",
+      "name": "UAT Wakil Direktur II",
+      "email": "uat.wadir2@demo.signit.example",
+      "category": "Management",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": [
+        {
+          "id": "ab202610-0010-4000-8000-000000000110",
+          "positionCode": "Wadir2",
+          "positionName": "Wakil Direktur II",
+          "scope": "uat-himpunan",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        },
+        {
+          "id": "ab202610-0010-4000-8000-000000000111",
+          "positionCode": "Wadir2",
+          "positionName": "Wakil Direktur II",
+          "scope": "uat-organisasi",
+          "capability": "Approver",
+          "validFrom": "2026-10-10T00:00:00Z",
+          "validTo": "2026-11-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "aa202610-0010-4000-8000-000000000012",
+      "name": "UAT Mahasiswa Tanpa Assignment",
+      "email": "uat.tanpa-assignment@demo.signit.example",
+      "category": "StudentGeneral",
+      "passwordEnvironmentVariable": "SIGNIT_UAT_PASSWORD",
+      "emailVerified": false,
+      "assignments": []
+    }
+  ]
+}

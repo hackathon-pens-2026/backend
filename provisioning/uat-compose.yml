@@ -1,0 +1,24 @@
+# Run as a second Compose file after infrastructure/docker/docker-compose.yml.
+# Relative paths resolve against that first file, not this file.
+services:
+  uat-provisioner:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    working_dir: /src
+    user: "1654:1654"
+    volumes:
+      - ../../backend:/src:ro
+      - ../data/backend:/app/.data
+    env_file:
+      - path: secrets.env
+        required: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=database;Port=5432;Database=${POSTGRES_DB:-hackathondb};Username=${POSTGRES_USER:-appuser};Password=${POSTGRES_PASSWORD:-apppassword}"
+      Storage__RootDirectory: /app/.data/storage
+      DataProtection__KeyDirectory: /app/.data/keys
+      SIGNIT_UAT_PASSWORD: ${SIGNIT_UAT_PASSWORD:?Supply an initial UAT password}
+      DOTNET_CLI_HOME: /tmp/dotnet-home
+      NUGET_PACKAGES: /tmp/nuget-packages
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mkdir -p /tmp/signit-uat && cp backend.csproj Program.cs appsettings*.json /tmp/signit-uat/ && cp -R Modules Infrastructure provisioning /tmp/signit-uat/ && cd /tmp/signit-uat && dotnet run --no-launch-profile -- --provision-auth provisioning/uat-accounts.json"

@@ -22,10 +22,16 @@ public sealed record LetterActiveTaskDto(Guid Id, int Order, WorkflowActionType 
 public sealed record LetterSummaryDto(Guid Id, string Number, string TypeId, string Title, LetterStatus Status,
     Guid Version, Guid RevisionId, DateTimeOffset SubmittedAt, DateTimeOffset? CompletedAt,
     int TotalTasks, int CompletedTasks, LetterActiveTaskDto? ActiveTask);
-public sealed record LetterListDto(int Page, int PageSize, int Total, LetterSummaryDto[] Items);
+public sealed record LetterListDto(int Page, int PageSize, int Total, LetterSummaryDto[] Items,
+    Dictionary<string, int> StatusCounts);
 
 public sealed class LettersService(AppDbContext db, TemplateCatalog templates, TimeProvider clock)
 {
+    public async Task<LetterListDto> ListAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct)
+    {
+        return await ListWithProgressAsync(actor, page, pageSize, search, ct);
+    }
+
     public async Task<DraftDto> CreateAsync(Guid actor, SaveDraftRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 300)
@@ -51,10 +57,19 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
     }
 
     public async Task<LetterListDto> ListAsync(Guid actor, int page, int pageSize, CancellationToken ct)
+        => await ListWithProgressAsync(actor, page, pageSize, null, ct);
+
+    private async Task<LetterListDto> ListWithProgressAsync(Guid actor, int page, int pageSize, string? search, CancellationToken ct)
     {
-        if (page is < 1 or > 10000 || pageSize is < 1 or > 100)
+        if (page is < 1 or > 10000 || pageSize is < 1 or > 100 || search?.Length > 300)
             throw new SignItDomainException(DomainErrorKind.Validation, "invalid_pagination", "Page mulai 1; pageSize maksimal 100.");
         var query = db.LetterRequests.AsNoTracking().Where(x => x.SubmittedByUserId == actor);
+        var counts = await query.GroupBy(x => x.Status).Select(x => new { Status = x.Key, Count = x.Count() }).ToArrayAsync(ct);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(x => x.Title.Contains(term) || x.Number.Contains(term));
+        }
         var total = await query.CountAsync(ct);
         var letters = await query.OrderByDescending(x => x.SubmittedAt).ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
@@ -85,7 +100,7 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
                     active.DomainCode, positionName, active.ActivatedAt, active.DueAt,
                     active.DueAt.HasValue && active.DueAt < now));
         }).ToArray();
-        return new(page, pageSize, total, items);
+        return new(page, pageSize, total, items, counts.ToDictionary(x => x.Status.ToString(), x => x.Count));
     }
 
     public async Task<DraftDto> UpdateDraftAsync(Guid actor, Guid id, string? title, Dictionary<string, string> fields, CancellationToken ct)

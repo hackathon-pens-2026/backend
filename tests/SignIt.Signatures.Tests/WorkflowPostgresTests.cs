@@ -61,9 +61,9 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
     private static SignTaskRequest SignRequest(WorkflowTask task, LetterRevision revision) => new(revision.Id, revision.ContentHash, "QA reviewed", task.RowVersion);
     private static WorkflowMutationRequest Mutation(WorkflowTask task, LetterRevision revision, string reason = "Catatan QA") => new(revision.Id, revision.ContentHash, task.RowVersion, reason);
 
-    private static ISignatureWorkflowService IsolatedSignatureWorkflow(IServiceProvider services, bool fail = false) => new SignatureWorkflowService(
+    private static ISignatureWorkflowService IsolatedSignatureWorkflow(IServiceProvider services, bool fail = false, bool realPdf = false) => new SignatureWorkflowService(
         services.GetRequiredService<AppDbContext>(), services.GetRequiredService<IUserSignatureQrService>(), services.GetRequiredService<IQrCodeGenerator>(),
-        new WorkflowTestPdfAdapter(fail), services.GetRequiredService<IStorageService>(), TimeProvider.System,
+        realPdf ? new PdfSharpOverlayService() : new WorkflowTestPdfAdapter(fail), services.GetRequiredService<IStorageService>(), TimeProvider.System,
         NullLogger<SignatureWorkflowService>.Instance, services.GetRequiredService<WorkflowTaskAccess>(),
         services.GetRequiredService<WorkflowEmailService>(), services.GetRequiredService<WorkflowOptions>());
 
@@ -79,12 +79,20 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
         var services = scope.ServiceProvider;
         var submitted = await SubmitAsync(services, type, facility);
         var db = services.GetRequiredService<AppDbContext>();
-        var signature = IsolatedSignatureWorkflow(services);
+        var signature = IsolatedSignatureWorkflow(services, realPdf: true);
         var queries = services.GetRequiredService<WorkflowQueryService>();
         var revision = await db.LetterRevisions.SingleAsync(x => x.Id == submitted.Submitted.RevisionId);
         var frozen = revision.DataJson;
         var tasks = await db.WorkflowTasks.Where(x => x.RevisionId == revision.Id).OrderBy(x => x.Order).ToListAsync();
         Assert.Equal(count, tasks.Count);
+        var documents = services.GetRequiredService<SignatureDocumentService>();
+        var original = await queries.DownloadAsync(submitted.Owner, tasks[0].Id, default);
+        Assert.Empty(await documents.BuildOverlaysAsync(revision, false, default));
+        Assert.Equal(original, await queries.SignedDocumentAsync(submitted.Owner, submitted.Submitted.LetterId, documents, default));
+        var unauthorized = await db.Users.Where(x => x.Email == "pengaju-bem@demo.signit.example").Select(x => x.Id).SingleAsync();
+        var forbidden = await Assert.ThrowsAsync<SignItDomainException>(() => queries.SignedDocumentAsync(unauthorized,
+            submitted.Submitted.LetterId, documents, default));
+        Assert.Equal("letter_not_found", forbidden.Code);
         var pendingError = await Assert.ThrowsAsync<SignItDomainException>(() => signature.ExecuteTaskActionAsync(tasks[1].Id,
             tasks[1].AssignedUserId, tasks[1].ActionType, SignRequest(tasks[1], revision), "early", null, null, default));
         Assert.Equal("task_not_active", pendingError.Code);
@@ -102,6 +110,13 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
             var replay = await signature.ExecuteTaskActionAsync(task.Id, task.AssignedUserId, task.ActionType, request, key, null, null, default);
             Assert.Equal(result, replay);
             Assert.Equal(order, await db.SignatureEvidences.CountAsync(x => x.RevisionId == revision.Id));
+            var overlays = await documents.BuildOverlaysAsync(revision, false, default);
+            Assert.Equal(order, overlays.Count);
+            Assert.All(overlays, overlay => { Assert.True(overlay.IsCompleted); Assert.NotEmpty(overlay.QrImageBytes!); });
+            Assert.Equal(original, await queries.DownloadAsync(submitted.Owner, task.Id, default));
+            var signedCopy = await queries.SignedDocumentAsync(submitted.Owner, submitted.Submitted.LetterId, documents, default);
+            Assert.True(signedCopy.Length > original.Length);
+            if (order == 1) await SaveQaPdfAsync($"{type}-{facility ?? "none"}-partial.pdf", signedCopy);
             Assert.Equal(order == count ? 0 : 1, await db.WorkflowTasks.CountAsync(x => x.RevisionId == revision.Id && x.Status == WorkflowTaskStatus.Active));
             if (order == count)
             {
@@ -113,6 +128,17 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
         Assert.Equal(1, await db.Documents.CountAsync(x => x.RevisionId == revision.Id && x.Kind == DocumentKind.Final));
         var timeline = await queries.LetterAsync(submitted.Owner, submitted.Submitted.LetterId, default);
         Assert.Contains(timeline.Timeline, x => x.Action == "workflow.signed");
+        var finalCopy = await queries.SignedDocumentAsync(submitted.Owner, submitted.Submitted.LetterId, documents, default);
+        Assert.True(finalCopy.Length > original.Length);
+        await SaveQaPdfAsync($"{type}-{facility ?? "none"}-final.pdf", finalCopy);
+    }
+
+    private static async Task SaveQaPdfAsync(string name, byte[] bytes)
+    {
+        var directory = Environment.GetEnvironmentVariable("SIGNIT_PDF_QA_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Directory.CreateDirectory(directory);
+        await File.WriteAllBytesAsync(Path.Combine(directory, name), bytes);
     }
 
     [PostgresPreviewTheory]
@@ -142,6 +168,8 @@ public sealed class WorkflowPostgresTests(PreviewPostgresFixture fixture)
         Assert.Equal(data.Submitted.Number, resubmit.Number);
         Assert.Equal(1, await db.SignatureEvidences.CountAsync(x => x.RevisionId == original.Id));
         Assert.Equal(0, await db.SignatureEvidences.CountAsync(x => x.RevisionId == resubmit.RevisionId));
+        var revised = await db.LetterRevisions.SingleAsync(x => x.Id == resubmit.RevisionId);
+        Assert.Empty(await services.GetRequiredService<SignatureDocumentService>().BuildOverlaysAsync(revised, false, default));
         var fresh = await db.WorkflowTasks.Where(x => x.RevisionId == resubmit.RevisionId).OrderBy(x => x.Order).ToListAsync();
         Assert.Equal(5, fresh.Count);
         Assert.Equal(WorkflowTaskStatus.Active, fresh[0].Status);
