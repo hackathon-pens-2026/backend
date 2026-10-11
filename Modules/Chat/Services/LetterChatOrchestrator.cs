@@ -1,13 +1,12 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Llm;
 using SignIt.Infrastructure.Persistence;
-using SignIt.Modules.Authentication.Models;
 using SignIt.Modules.Chat.DTOs;
 using SignIt.Modules.Chat.Models;
-using SignIt.Modules.Letters.Models;
 using SignIt.Modules.Letters.Services;
 using SignIt.Modules.Rooms.Services;
 using SignIt.Modules.Templates.Services;
@@ -19,13 +18,11 @@ public sealed class LetterChatOrchestrator
     private readonly AppDbContext db;
     private readonly TemplateCatalog templates;
     private readonly LettersService lettersService;
-    private readonly RoomReservationService roomReservationService;
-    private readonly ILlmClient llmClient;
     private readonly TimeProvider clock;
     private readonly ILogger<LetterChatOrchestrator> logger;
     private readonly ChatTurnAdvisor advisor;
-
-    private static readonly TimeSpan JakartaOffset = TimeSpan.FromHours(7);
+    private readonly IChatCandidateResolver candidateResolver;
+    private readonly IChatExtractionProcessor extractionProcessor;
 
     public LetterChatOrchestrator(
         AppDbContext db,
@@ -35,16 +32,25 @@ public sealed class LetterChatOrchestrator
         ILlmClient llmClient,
         TimeProvider clock,
         ILogger<LetterChatOrchestrator> logger,
-        ChatTurnAdvisor? advisor = null)
+        ChatTurnAdvisor? advisor = null,
+        IChatCandidateResolver? candidateResolver = null,
+        IChatExtractionProcessor? extractionProcessor = null)
     {
         this.db = db;
         this.templates = templates;
         this.lettersService = lettersService;
-        this.roomReservationService = roomReservationService;
-        this.llmClient = llmClient;
         this.clock = clock;
         this.logger = logger;
         this.advisor = advisor ?? new ChatTurnAdvisor(templates);
+        this.candidateResolver = candidateResolver ?? new ChatCandidateResolver(db, clock);
+        this.extractionProcessor = extractionProcessor ?? new ChatExtractionProcessor(
+            db,
+            templates,
+            llmClient,
+            this.candidateResolver,
+            roomReservationService,
+            clock,
+            NullLogger<ChatExtractionProcessor>.Instance);
     }
 
     public async Task<ChatSessionDetailDto> CreateOrResumeSessionAsync(
@@ -221,120 +227,14 @@ public sealed class LetterChatOrchestrator
             }
         }
 
-        string botResponseText = string.Empty;
-        string? suggestedWidget = null;
-        IReadOnlyList<CandidatePersonDto>? candidates = null;
-        AvailabilityDto? availability = null;
-        string status = "active";
-        bool fallbackAvailable = false;
-
-        // 5. Ekstraksi LLM jika ada teks masukan dan sesi sudah memiliki tipe surat
-        if (!string.IsNullOrEmpty(userText) && !string.IsNullOrWhiteSpace(session.TypeId))
-        {
-            var allTemplates = await templates.GetAllAsync(ct);
-            var template = allTemplates.SingleOrDefault(x => x.TypeId == session.TypeId);
-
-            if (template != null)
-            {
-                var llmResult = await llmClient.ExtractFieldsAsync(
-                    userText,
-                    session.TypeId,
-                    currentFields,
-                    template.Fields,
-                    ct);
-
-                var audit = AuditLog.Record(
-                    actorUserId: actor,
-                    action: "chat_llm_proxy",
-                    entity: "ChatSession",
-                    entityId: sessionId,
-                    revisionId: null,
-                    atUtc: clock.GetUtcNow(),
-                    correlationId: sessionId.ToString(),
-                    details: $"latency_ms={llmResult.LatencyMs};success={llmResult.Success};extracted_count={llmResult.ExtractedFields.Count}");
-                db.AuditLogs.Add(audit);
-
-                if (llmResult.Success)
-                {
-                    // Gabungkan hasil ekstraksi LLM ke field draf
-                    foreach (var (k, v) in llmResult.ExtractedFields)
-                    {
-                        if (!string.IsNullOrWhiteSpace(v))
-                        {
-                            currentFields[k] = v;
-                        }
-                    }
-
-                    ChatFieldSynchronizer.SynchronizeAliases(currentFields);
-
-                    // Pengecekan tanggal dan waktu kegiatan
-                    var startsAt = llmResult.DetectedStartsAt
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("startsAt"))
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_mulai"))
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("start_time"));
-                    var endsAt = llmResult.DetectedEndsAt
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("endsAt"))
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("tanggal_selesai"))
-                        ?? ParseDateTimeOffset(currentFields.GetValueOrDefault("end_time"));
-
-                    if (startsAt.HasValue && endsAt.HasValue)
-                    {
-                        if (!currentFields.ContainsKey("hari_tanggal_kegiatan") || string.IsNullOrWhiteSpace(currentFields["hari_tanggal_kegiatan"]))
-                        {
-                            currentFields["hari_tanggal_kegiatan"] = startsAt.Value.ToOffset(JakartaOffset).ToString("dd MMMM yyyy", new System.Globalization.CultureInfo("id-ID"));
-                        }
-                        if (!currentFields.ContainsKey("waktu_kegiatan") || string.IsNullOrWhiteSpace(currentFields["waktu_kegiatan"]))
-                        {
-                            currentFields["waktu_kegiatan"] = $"{startsAt.Value.ToOffset(JakartaOffset):HH:mm} - {endsAt.Value.ToOffset(JakartaOffset):HH:mm} WIB";
-                        }
-                    }
-
-                    // Pengecekan tempat & ketersediaan ruangan
-                    var roomQuery = llmResult.DetectedRoom
-                        ?? currentFields.GetValueOrDefault("ruangan_kegiatan")
-                        ?? currentFields.GetValueOrDefault("lokasi");
-
-                    if (!string.IsNullOrWhiteSpace(roomQuery))
-                    {
-                        var matchedRoom = await FindMatchingRoomAsync(roomQuery, ct);
-
-                        if (matchedRoom != null)
-                        {
-                            currentFields["ruangan_kegiatan"] = $"{matchedRoom.FacilityName} {matchedRoom.Code}".Trim();
-                            currentFields["lokasi"] = currentFields["ruangan_kegiatan"];
-
-                            if (startsAt.HasValue && endsAt.HasValue && endsAt > startsAt)
-                            {
-                                try
-                                {
-                                    availability = await roomReservationService.CheckAvailabilityAsync(
-                                        matchedRoom.Id,
-                                        startsAt.Value,
-                                        endsAt.Value,
-                                        ct);
-                                }
-                                catch (Exception ex)
-                                {
-                                    logger.LogWarning(ex, "Gagal memeriksa ketersediaan ruangan {RoomId}", matchedRoom.Id);
-                                }
-                            }
-                        }
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(llmResult.AssistantMessage))
-                    {
-                        botResponseText = llmResult.AssistantMessage;
-                    }
-                }
-                else
-                {
-                    logger.LogWarning("LLM Extraction failed: {ErrorCode} - {ErrorMessage}", llmResult.ErrorCode, llmResult.ErrorMessage);
-                    status = "provider_unavailable";
-                    fallbackAvailable = true;
-                    botResponseText = "Layanan AI sedang mengalami kendala. Draf Anda tetap tersimpan dengan aman. Anda dapat melanjutkan melengkapi data melalui formulir di samping.";
-                }
-            }
-        }
+        // 5. Ekstraksi LLM, enrich Jakarta time, & ketersediaan ruangan via ChatExtractionProcessor
+        var extractionOutcome = await extractionProcessor.ProcessExtractionAsync(
+            actor,
+            sessionId,
+            userText,
+            session.TypeId,
+            currentFields,
+            ct);
 
         // 6. Sinkronisasi draf ke database
         DraftDto? draftDto = null;
@@ -353,23 +253,24 @@ public sealed class LetterChatOrchestrator
         }
 
         // 7. Analisis field yang masih kurang & tentukan widget rekomendasi deterministik
-        var (fieldSummary, calculatedWidget) = await advisor.AnalyzeFieldsAsync(session.TypeId, currentFields, ct);
-        suggestedWidget = calculatedWidget;
+        var (fieldSummary, suggestedWidget) = await advisor.AnalyzeFieldsAsync(session.TypeId, currentFields, ct);
 
-        // Jika bot belum memiliki kalimat balasan (misal dari direct action atau LLM tidak memberi balasan spesifik)
+        // Tentukan kalimat balasan bot
+        var botResponseText = extractionOutcome.BotResponseText;
         if (string.IsNullOrEmpty(botResponseText))
         {
-            botResponseText = advisor.BuildDeterministicBotReply(suggestedWidget, fieldSummary, availability, currentFields);
+            botResponseText = advisor.BuildDeterministicBotReply(suggestedWidget, fieldSummary, extractionOutcome.Availability, currentFields);
         }
 
         // 8. Ambil data kandidat pejabat jika widget adalah ketuaPicker atau pembinaPicker
+        IReadOnlyList<CandidatePersonDto>? candidates = null;
         if (suggestedWidget == "ketuaPicker")
         {
-            candidates = await GetSignerCandidatesAsync(["Ketupel", "KetuaOrganisasi"], ct);
+            candidates = await candidateResolver.GetSignerCandidatesAsync(["Ketupel", "KetuaOrganisasi"], ct);
         }
         else if (suggestedWidget == "pembinaPicker")
         {
-            candidates = await GetSignerCandidatesAsync(["Pembina", "PembinaOrmawa", "DosenPembina"], ct);
+            candidates = await candidateResolver.GetSignerCandidatesAsync(["Pembina", "PembinaOrmawa", "DosenPembina"], ct);
         }
 
         // 9. Simpan pesan bot ke database
@@ -401,50 +302,10 @@ public sealed class LetterChatOrchestrator
             fieldSummary,
             suggestedWidget,
             candidates,
-            availability,
+            extractionOutcome.Availability,
             draftDto,
-            status,
-            fallbackAvailable);
-    }
-
-    private async Task<IReadOnlyList<CandidatePersonDto>> GetSignerCandidatesAsync(
-        string[] positionCodes,
-        CancellationToken ct)
-    {
-        var now = clock.GetUtcNow();
-        return await (from a in db.Assignments.AsNoTracking()
-            join u in db.Users.AsNoTracking() on a.UserId equals u.Id
-            where a.IsActive && u.IsActive && a.Capability == UserCapability.Signer
-                && positionCodes.Contains(a.PositionCode)
-                && a.ValidFrom <= now && (a.ValidTo == null || a.ValidTo > now)
-            orderby a.PositionCode, u.Name
-            select new CandidatePersonDto(
-                u.Id,
-                u.Name,
-                a.PositionCode,
-                a.PositionName,
-                u.NimNip != null ? $"NRP/NIP: {u.NimNip} · {a.PositionName}" : a.PositionName))
-            .Distinct()
-            .ToListAsync(ct);
-    }
-
-    private async Task<RoomOptionDto?> FindMatchingRoomAsync(string? query, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(query)) return null;
-
-        var q = query.Trim().ToLowerInvariant();
-        var allRooms = await (from r in db.FacilityResources.AsNoTracking()
-            join f in db.Facilities.AsNoTracking() on r.FacilityId equals f.Id
-            where r.IsBookable
-            select new RoomOptionDto(r.Id, r.Code, r.Floor, f.Id, f.Name)).ToListAsync(ct);
-
-        return allRooms.FirstOrDefault(r =>
-            q.Contains(r.Code.ToLowerInvariant()) ||
-            r.Code.ToLowerInvariant().Contains(q) ||
-            q.Contains(r.FacilityName.ToLowerInvariant()) ||
-            r.FacilityName.ToLowerInvariant().Contains(q) ||
-            $"{r.FacilityName} {r.Code}".ToLowerInvariant().Contains(q) ||
-            q.Contains($"{r.FacilityName} {r.Code}".ToLowerInvariant()));
+            extractionOutcome.Status,
+            extractionOutcome.FallbackAvailable);
     }
 
     private static Dictionary<string, string> ParseFieldsJson(string json)
@@ -458,11 +319,5 @@ public sealed class LetterChatOrchestrator
         {
             return [];
         }
-    }
-
-    private static DateTimeOffset? ParseDateTimeOffset(string? val)
-    {
-        if (string.IsNullOrWhiteSpace(val)) return null;
-        return DateTimeOffset.TryParse(val, out var parsed) ? parsed : null;
     }
 }

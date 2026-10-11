@@ -10,8 +10,3 @@ public sealed record PreviewRenderInput(string TypeId, string TemplateVersionId,
     string Title, Guid OrganizationId, Guid? ResourceId, Dictionary<string, string> Fields,
     RenderParticipant[] Participants, TemplateRenderLayout Layout);
 public sealed record RenderedPreview(byte[] Bytes, SignatureSlot[] Slots);
-
-public interface ILetterTemplateRenderer
-{
-    RenderedPreview Render(PreviewRenderInput input, CancellationToken ct);
-}

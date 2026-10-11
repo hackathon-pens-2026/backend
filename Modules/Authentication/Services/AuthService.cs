@@ -5,8 +5,10 @@ using SignIt.Modules.Authentication.DTOs;
 namespace SignIt.Modules.Authentication.Services;
 
 public sealed class AuthService(IAuthStore store, IPasswordService passwords, ITokenService tokens,
-    IResetEmailProtector emailProtector, AuthOptions options, TimeProvider clock) : IAuthService
+    IResetEmailProtector emailProtector, AuthOptions options, TimeProvider clock, IAuthUserMapper? userMapper = null) : IAuthService
 {
+    private readonly IAuthUserMapper _userMapper = userMapper ?? new AuthUserMapper(store);
+
     private static AuthException InvalidLogin() => new("invalid_credentials", "Email atau password tidak valid.", AuthErrorKind.Unauthorized);
     private static AuthException InvalidRefresh() => new("invalid_refresh_token", "Sesi tidak valid. Silakan login kembali.", AuthErrorKind.Unauthorized);
     private static AuthException InvalidReset() => new("invalid_reset_token", "Tautan reset tidak valid atau sudah kedaluwarsa.", AuthErrorKind.Validation);
@@ -139,7 +141,7 @@ public sealed class AuthService(IAuthStore store, IPasswordService passwords, IT
     {
         var user = await store.GetUserAsync(userId, ct);
         if (user is null || !user.IsActive) throw InvalidRefresh();
-        return await MapUserAsync(user, clock.GetUtcNow(), ct);
+        return await _userMapper.MapUserAsync(user, clock.GetUtcNow(), ct);
     }
 
     public async Task<bool> IsSessionValidAsync(Guid userId, Guid sessionId, Guid securityStamp, CancellationToken ct)
@@ -154,17 +156,7 @@ public sealed class AuthService(IAuthStore store, IPasswordService passwords, IT
         DateTimeOffset now, CancellationToken ct)
     {
         var access = tokens.CreateAccessToken(user, session, now);
-        return new AuthTokensDto(access.Value, access.ExpiresAt, refresh, session.ExpiresAt, await MapUserAsync(user, now, ct));
-    }
-
-    private async Task<UserDto> MapUserAsync(User user, DateTimeOffset now, CancellationToken ct)
-    {
-        var assignments = await store.GetActiveAssignmentsAsync(user.Id, now, ct);
-        // Requester is the base capability; approval/unit permissions never come from category.
-        var capabilities = assignments.Select(a => a.Capability).Append(UserCapability.Requester).Distinct().Order().ToArray();
-        return new UserDto(user.Id, user.Name, user.Email, user.NimNip, user.IsActive, user.EmailVerifiedAt,
-            user.Category, user.Surface, capabilities, assignments.Select(a => new AssignmentDto(a.Id,
-                a.PositionCode, a.PositionName, a.Scope, a.Capability, a.ValidFrom, a.ValidTo)).ToArray());
+        return new AuthTokensDto(access.Value, access.ExpiresAt, refresh, session.ExpiresAt, await _userMapper.MapUserAsync(user, now, ct));
     }
 
     private void Audit(Guid userId, string action, DateTimeOffset now, RequestMetadata metadata)

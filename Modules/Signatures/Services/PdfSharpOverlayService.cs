@@ -10,8 +10,11 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
     private static readonly TimeZoneInfo WibTimeZone = TimeZoneInfo.FindSystemTimeZoneById(
         OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
 
-    public PdfSharpOverlayService()
+    private readonly IPdfSignatureCardDrawer _cardDrawer;
+
+    public PdfSharpOverlayService(IPdfSignatureCardDrawer? cardDrawer = null)
     {
+        _cardDrawer = cardDrawer ?? new PdfSignatureCardDrawer();
         SignItFontResolver.EnsureRegistered();
     }
 
@@ -76,64 +79,11 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
 
                 if (item.IsCompleted && item.QrImageBytes is { Length: > 0 })
                 {
-                    // Draw slot background/card
-                    gfx.DrawRectangle(new XPen(XColor.FromArgb(180, 200, 220), 0.75),
-                        new XSolidBrush(XColor.FromArgb(248, 250, 252)),
-                        item.X, item.Y, item.Width, item.Height);
-
-                    // Divide slot into QR area and text info area
-                    // Reserve the bottom 44pt for labels so a 100pt slot cannot overflow.
-                    var qrSize = Math.Min(72, Math.Min(item.Width - 8, item.Height - 48));
-                    if (qrSize < 32)
-                        throw new SignItDomainException(DomainErrorKind.Validation, "signature_slot_too_small",
-                            "Slot terlalu kecil untuk QR dan identitas penandatangan.");
-                    var qrX = item.X + (item.Width - qrSize) / 2;
-                    var qrY = item.Y + 4;
-
-                    var embeddingBytes = QrPdfImage.Normalize(item.QrImageBytes);
-                    using var imgStream = new MemoryStream(embeddingBytes, 0, embeddingBytes.Length, false, true);
-                    using var qrImage = XImage.FromStream(imgStream);
-                    gfx.DrawImage(qrImage, qrX, qrY, qrSize, qrSize);
-
-                    if (fontRegular != null && fontBold != null && fontSmall != null)
-                    {
-                        var textY = qrY + qrSize + 4;
-                        var textRect = new XRect(item.X + 2, textY, item.Width - 4, 10);
-                        DrawFitted(gfx, "Ditandatangani secara elektronik:", fontSmall, XBrushes.DarkSlateGray, textRect);
-
-                        textRect = new XRect(item.X + 2, textY + 9, item.Width - 4, 10);
-                        DrawFitted(gfx, item.SignerName, fontBold, XBrushes.Black, textRect);
-
-                        if (!string.IsNullOrWhiteSpace(item.SignerPosition))
-                        {
-                            textRect = new XRect(item.X + 2, textY + 18, item.Width - 4, 10);
-                            DrawFitted(gfx, item.SignerPosition, fontSmall, XBrushes.DarkGray, textRect);
-                        }
-
-                        if (item.SignedAt.HasValue)
-                        {
-                            var wibTime = TimeZoneInfo.ConvertTime(item.SignedAt.Value, WibTimeZone);
-                            var formattedTime = $"{wibTime:dd/MM/yyyy HH:mm} WIB";
-                            textRect = new XRect(item.X + 2, textY + 26, item.Width - 4, 10);
-                            gfx.DrawString(formattedTime, fontSmall, XBrushes.SlateGray, textRect, XStringFormats.TopCenter);
-                        }
-                    }
+                    _cardDrawer.DrawCompletedCard(gfx, item, fontRegular, fontBold, fontSmall, WibTimeZone);
                 }
                 else
                 {
-                    // Placeholder for pending signature slot
-                    var dashedPen = new XPen(XColor.FromArgb(160, 175, 195), 1) { DashStyle = XDashStyle.Dash };
-                    gfx.DrawRectangle(dashedPen, new XSolidBrush(XColor.FromArgb(250, 250, 250)),
-                        item.X, item.Y, item.Width, item.Height);
-
-                    if (fontRegular != null)
-                    {
-                        var textRect = new XRect(item.X + 2, item.Y + item.Height / 2 - 10, item.Width - 4, 10);
-                        gfx.DrawString("[Menunggu Tanda Tangan]", fontRegular, XBrushes.SlateGray, textRect, XStringFormats.TopCenter);
-
-                        textRect = new XRect(item.X + 2, item.Y + item.Height / 2, item.Width - 4, 10);
-                        gfx.DrawString(item.SignerName, fontRegular, XBrushes.DarkGray, textRect, XStringFormats.TopCenter);
-                    }
+                    _cardDrawer.DrawPendingCard(gfx, item, fontRegular);
                 }
 
                 gfx.Restore(state);
@@ -146,9 +96,7 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
                 using var gfx = XGraphics.FromPdfPage(lastPage, XGraphicsPdfPageOptions.Append);
                 if (fontSmall != null)
                 {
-                    var footerText = $"Kode verifikasi keaslian dokumen: {documentVerificationCode}";
-                    gfx.DrawString(footerText, fontSmall, XBrushes.DarkSlateGray,
-                        new XPoint(36, lastPage.Height.Point - 20));
+                    _cardDrawer.DrawVerificationFooter(gfx, documentVerificationCode, fontSmall, lastPage.Height.Point - 20);
                 }
             }
 
@@ -166,20 +114,6 @@ public sealed class PdfSharpOverlayService : IPdfOverlayService
             throw new SignItDomainException(DomainErrorKind.ProcessingFailed, "pdf_overlay_failed",
                 $"Gagal melakukan overlay tanda tangan pada dokumen: {ex.Message}");
         }
-    }
-
-    private static void DrawFitted(XGraphics gfx, string text, XFont font, XBrush brush, XRect bounds)
-    {
-        var display = text;
-        while (display.Length > 0 && gfx.MeasureString(display, font).Width > bounds.Width)
-            display = display[..^1];
-        if (display != text)
-        {
-            while (display.Length > 0 && gfx.MeasureString(display + "...", font).Width > bounds.Width)
-                display = display[..^1];
-            display += "...";
-        }
-        gfx.DrawString(display, font, brush, bounds, XStringFormats.TopCenter);
     }
 
     public byte[] GeneratePlaceholderPdf(string title, string letterNumber, string content)

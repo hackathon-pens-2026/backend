@@ -3,13 +3,6 @@ using SignIt.Infrastructure.Errors;
 
 namespace SignIt.Modules.Signatures.Services;
 
-public sealed record PdfInspectionResult(byte[] Bytes, string Sha256Hash);
-
-public interface IPdfDocumentInspector
-{
-    Task<PdfInspectionResult> InspectPdfAsync(Stream fileStream, long fileSize, CancellationToken ct);
-}
-
 public sealed class PdfDocumentInspector : IPdfDocumentInspector
 {
     public const long DefaultMaxUploadSizeBytes = 10 * 1024 * 1024; // 10 MiB limit

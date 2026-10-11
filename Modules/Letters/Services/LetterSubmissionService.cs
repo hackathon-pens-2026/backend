@@ -29,17 +29,23 @@ public sealed class LetterSubmissionService(
     LetterPreviewService previews,
     WorkflowEmailService emails,
     WorkflowOptions workflow,
-    ISignatureSlotValidator? slotValidator = null)
+    ISignatureSlotValidator? slotValidator = null,
+    ISubmissionWorkflowInitializer? workflowInitializer = null,
+    ISubmissionValidator? validator = null)
 {
     private readonly ISignatureSlotValidator _slotValidator = slotValidator ?? new PdfSignatureSlotValidator();
+    private readonly ISubmissionWorkflowInitializer _workflowInitializer = workflowInitializer ?? new SubmissionWorkflowInitializer();
+    private readonly ISubmissionValidator _validator = validator ?? new SubmissionValidator();
+
     public async Task<SubmissionDto> SubmitAsync(Guid actor, Guid id, SubmitLetterRequest request, string key, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(key) || key.Length > 80)
-            throw Error("idempotency_key_required", "Idempotency-Key wajib diisi, maksimal 80 karakter.");
+        _validator.ValidateIdempotencyKey(key);
+
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var letter = await db.LetterRequests.FromSqlInterpolated($"SELECT * FROM letter_requests WHERE \"Id\"={id} AND \"SubmittedByUserId\"={actor} FOR UPDATE").SingleOrDefaultAsync(ct)
             ?? throw new SignItDomainException(DomainErrorKind.NotFound, "letter_not_found", "Surat tidak ditemukan.");
         await db.Entry(letter).ReloadAsync(ct);
+
         var fingerprint = Hash(JsonSerializer.Serialize(request));
         var correlation = Hash($"{actor}:{id}:{key}");
         var previous = await db.AuditLogs.SingleOrDefaultAsync(x => x.EntityId == id && x.Action == "letter.submitted" && x.CorrelationId == correlation, ct);
@@ -49,16 +55,17 @@ public sealed class LetterSubmissionService(
             await transaction.CommitAsync(ct);
             return new(id, previous.RevisionId!.Value, letter.Number, letter.Status);
         }
-        if (!letter.CanBeSubmitted || letter.RowVersion != request.ExpectedVersion || letter.CurrentRevisionId != request.ExpectedRevisionId
-            || await db.WorkflowTasks.AnyAsync(x => x.RevisionId == request.ExpectedRevisionId, ct))
-            throw Conflict("stale_draft", "Draft berubah atau sudah diajukan. Muat ulang surat.");
+
+        var hasExistingTasks = await db.WorkflowTasks.AnyAsync(x => x.RevisionId == request.ExpectedRevisionId, ct);
+        _validator.ValidateDraftState(letter, request, hasExistingTasks);
+
         var draft = await db.LetterRevisions.SingleAsync(x => x.Id == letter.CurrentRevisionId, ct);
-        if (draft.ContentHash != request.ExpectedContentHash) throw Conflict("stale_content", "Isi draft telah berubah.");
+        _validator.ValidateContent(draft, request.ExpectedContentHash);
+
         var template = (await templates.GetAllAsync(ct)).Single(x => x.TypeId == letter.TypeId);
-        if (draft.TemplateVersionId != $"{template.TemplateId}:{template.Version}") throw Conflict("stale_template", "Template berubah. Perbarui preview.");
         var fields = JsonSerializer.Deserialize<Dictionary<string, string>>(draft.DataJson) ?? [];
-        if (template.Fields.Any(x => x.ValueSource == "user" && x.Required && (!fields.TryGetValue(x.Key, out var value) || string.IsNullOrWhiteSpace(value))))
-            throw Error("required_fields_missing", "Lengkapi field wajib template sebelum mengajukan.");
+        _validator.ValidateTemplate(draft, template, fields);
+
         var stages = await routing.ResolveAsync(actor, new(letter.TypeId, request.OrganizationId, request.CommitteeChairId, request.OrganizationChairId, request.ResourceId), ct);
         var review = await db.Documents.SingleOrDefaultAsync(x => x.Id == request.ReviewDocumentId && x.RevisionId == draft.Id
             && x.Kind == DocumentKind.Review && x.ProcessingState == "Ready" && x.MimeType == "application/pdf", ct)
@@ -66,48 +73,36 @@ public sealed class LetterSubmissionService(
         var job = await db.LetterPreviewJobs.AsNoTracking().SingleOrDefaultAsync(x => x.DocumentId == review.Id
             && x.RevisionId == draft.Id && x.RequestId == id && x.State == "Ready", ct)
             ?? throw Error("generated_review_required", "Gunakan preview yang dihasilkan renderer template.");
+
         var renderedInput = await previews.BuildInputAsync(actor, letter, draft, template, request.OrganizationId,
             request.CommitteeChairId, request.OrganizationChairId, request.ResourceId, ct);
-        if (job.InputHash != Hash(JsonSerializer.Serialize(renderedInput)))
-            throw Conflict("stale_preview", "Peserta, fasilitas atau template berubah. Generate preview baru sebelum mengajukan.");
         var serverSlots = JsonSerializer.Deserialize<SignatureSlot[]>(job.SlotsJson!)!;
-        if (request.Slots is null || !request.Slots.OrderBy(x => x.PositionCode).SequenceEqual(serverSlots.OrderBy(x => x.PositionCode)))
-            throw Error("preview_slots_mismatch", "Slot QR harus sesuai layout preview dari server.");
+        _validator.ValidatePreviewJob(job, Hash(JsonSerializer.Serialize(renderedInput)), request.Slots, serverSlots);
+
         var bytes = await storage.ReadBytesAsync(review.StorageKey, ct);
-        if (bytes == null || Hash(bytes) != review.Sha256 || review.Sha256 != request.ExpectedReviewHash)
-            throw Conflict("review_hash_mismatch", "Preview PDF berubah atau tidak tersedia.");
-        _slotValidator.ValidateSlots(bytes, request.Slots, stages);
+        _validator.ValidateReviewDocument(review, request.ExpectedReviewHash, bytes);
+        _slotValidator.ValidateSlots(bytes!, request.Slots!, stages);
+
         var now = clock.GetUtcNow();
         var snapshot = JsonSerializer.Serialize(new { Fields = renderedInput.Fields, request.OrganizationId, request.ResourceId,
             Stages = stages, Slots = serverSlots, ReviewHash = review.Sha256, renderedInput.TemplateAssetHash,
             renderedInput.Layout.RendererVersion, PreviewJobId = job.Id, PolicyVersion = "2026-10-09" });
         var revision = LetterRevision.Create(Guid.NewGuid(), id, draft.RevisionNo + 1, draft.TemplateVersionId, snapshot, Hash(snapshot), review.Id, now);
         db.LetterRevisions.Add(revision);
-        WorkflowTask? firstTask = null;
-        var dueAt = now.AddDays(workflow.SlaDays);
-        foreach (var stage in stages)
-        {
-            var slot = request.Slots.Single(x => x.PositionCode == stage.PositionCode);
-            var participant = LetterParticipant.Create(Guid.NewGuid(), revision.Id,
-                stage.Order == 1 ? LetterRole.Applicant : stage.Order == 2 ? LetterRole.ClosingSignatory : LetterRole.ApprovingSignatory,
-                stage.PositionCode, stage.UserId, stage.Name, stage.PositionName, true, slot.PageIndex, slot.X, slot.Y, slot.Width, slot.Height);
-            db.LetterParticipants.Add(participant);
-            var isFirst = stage.Order == 1;
-            var task = WorkflowTask.Create(Guid.NewGuid(), revision.Id, participant.Id, stage.Order,
-                stage.Order <= 2 ? WorkflowActionType.Sign : WorkflowActionType.ApproveAndSign, stage.UserId,
-                stage.PositionCode, isFirst ? WorkflowTaskStatus.Active : WorkflowTaskStatus.Pending,
-                isFirst ? now : null, dueAt);
-            if (isFirst) firstTask = task;
-            db.WorkflowTasks.Add(task);
-        }
+
+        var initialized = _workflowInitializer.Initialize(revision.Id, stages, request.Slots!, now, workflow.SlaDays);
+        db.LetterParticipants.AddRange(initialized.Participants);
+        db.WorkflowTasks.AddRange(initialized.Tasks);
+
         letter.SetCurrentRevision(revision.Id);
         var submitterUser = await db.Users.AsNoTracking().SingleAsync(x => x.Id == actor, ct);
         await emails.EnqueueSubmittedAsync(letter, submitterUser, ct);
-        if (firstTask != null)
+        if (initialized.FirstTask != null)
         {
-            var firstAssignee = await db.Users.AsNoTracking().SingleAsync(x => x.Id == firstTask.AssignedUserId, ct);
-            await emails.EnqueueTaskActiveAsync(firstTask, letter, firstAssignee, ct);
+            var firstAssignee = await db.Users.AsNoTracking().SingleAsync(x => x.Id == initialized.FirstTask.AssignedUserId, ct);
+            await emails.EnqueueTaskActiveAsync(initialized.FirstTask, letter, firstAssignee, ct);
         }
+
         letter.Submit(request.OrganizationId, letter.Status == LetterStatus.NeedsRevision ? letter.Number : $"SGN-{id:N}", now);
         db.AuditLogs.Add(AuditLog.Record(actor, "letter.submitted", "LetterRequest", id, revision.Id, now, correlation, fingerprint));
         await db.SaveChangesAsync(ct);

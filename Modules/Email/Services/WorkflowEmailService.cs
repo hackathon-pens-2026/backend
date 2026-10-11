@@ -10,8 +10,9 @@ using SignIt.Modules.Workflow.Models;
 namespace SignIt.Modules.Email.Services;
 
 // Outbox notifikasi workflow: ditulis atomik bersama transisi workflow oleh pemanggil.
-public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions options, TimeProvider clock)
+public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions options, TimeProvider clock, IWorkflowEmailRenderer? renderer = null)
 {
+    private readonly IWorkflowEmailRenderer _renderer = renderer ?? new WorkflowEmailRenderer();
     private static readonly TimeSpan JakartaOffset = TimeSpan.FromHours(7);
     private const string TemplateVersion = "v1";
 
@@ -27,8 +28,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
     public Task EnqueueSubmittedAsync(LetterRequest letter, User recipient, CancellationToken ct)
     {
         var link = LetterLink(letter.Id);
-        var (subject, text, html) = Render("Surat berhasil diajukan",
-            $"Surat {letter.Number} ({letter.Title}) telah diajukan dan menunggu persetujuan.", link);
+        var (subject, text, html) = _renderer.RenderSubmitted(letter, link);
         return EnqueueAsync(EmailDelivery.Queue(Guid.NewGuid(), "letter.submitted",
             SubmittedKey(letter.Id, recipient.Id), recipient.Id, recipient.Email, subject, text, html,
             clock.GetUtcNow(), letter.Id), ct);
@@ -37,8 +37,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
     public Task EnqueueTaskActiveAsync(WorkflowTask task, LetterRequest letter, User recipient, CancellationToken ct)
     {
         var link = LetterLink(letter.Id);
-        var (subject, text, html) = Render($"Surat {letter.Number}: menunggu persetujuan Anda",
-            $"Surat {letter.Number} ({letter.Title}) menunggu tindakan Anda.", link);
+        var (subject, text, html) = _renderer.RenderTaskActive(task, letter, link);
         return EnqueueAsync(EmailDelivery.Queue(Guid.NewGuid(), "task.activated",
             TaskActiveKey(task.Id, recipient.Id), recipient.Id, recipient.Email, subject, text, html,
             clock.GetUtcNow(), letter.Id, task.Id), ct);
@@ -48,8 +47,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
         string comment, CancellationToken ct)
     {
         var link = LetterLink(letter.Id);
-        var (subject, text, html) = Render($"Surat {letter.Number}: perlu revisi",
-            $"Surat {letter.Number} memerlukan revisi. Catatan: {comment}", link);
+        var (subject, text, html) = _renderer.RenderRevisionRequested(letter, comment, link);
         return EnqueueAsync(EmailDelivery.Queue(Guid.NewGuid(), "letter.revision_requested",
             RevisionKey(revisionId, recipient.Id), recipient.Id, recipient.Email, subject, text, html,
             clock.GetUtcNow(), letter.Id), ct);
@@ -58,8 +56,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
     public Task EnqueueRejectedAsync(LetterRequest letter, User recipient, string comment, CancellationToken ct)
     {
         var link = LetterLink(letter.Id);
-        var (subject, text, html) = Render($"Surat {letter.Number}: ditolak",
-            $"Surat {letter.Number} ditolak. Alasan: {comment}", link);
+        var (subject, text, html) = _renderer.RenderRejected(letter, comment, link);
         return EnqueueAsync(EmailDelivery.Queue(Guid.NewGuid(), "letter.rejected",
             RejectedKey(letter.Id, recipient.Id), recipient.Id, recipient.Email, subject, text, html,
             clock.GetUtcNow(), letter.Id), ct);
@@ -68,8 +65,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
     public Task EnqueueCompletedAsync(LetterRequest letter, User recipient, CancellationToken ct)
     {
         var link = LetterLink(letter.Id);
-        var (subject, text, html) = Render($"Surat {letter.Number}: selesai",
-            $"Surat {letter.Number} ({letter.Title}) telah selesai dan dapat diunduh melalui aplikasi.", link);
+        var (subject, text, html) = _renderer.RenderCompleted(letter, link);
         return EnqueueAsync(EmailDelivery.Queue(Guid.NewGuid(), "letter.completed",
             CompletedKey(letter.Id, recipient.Id), recipient.Id, recipient.Email, subject, text, html,
             clock.GetUtcNow(), letter.Id), ct);
@@ -102,8 +98,7 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
             if (lastReminderAt is { } last && last > now.AddHours(-options.ReminderCooldownHours)) continue;
 
             var link = LetterLink(candidate.Letter.Id);
-            var (subject, text, html) = Render($"Pengingat: surat {candidate.Letter.Number} menunggu tindakan Anda",
-                $"Tugas Anda pada surat {candidate.Letter.Number} telah melewati batas waktu. Mohon segera ditindaklanjuti.", link);
+            var (subject, text, html) = _renderer.RenderReminder(candidate.Letter, link);
             var delivery = EmailDelivery.Queue(Guid.NewGuid(), "task.reminder",
                 ReminderKey(candidate.Task.Id, now), candidate.User.Id, candidate.User.Email, subject, text, html,
                 now, candidate.Letter.Id, candidate.Task.Id, isReminder: true);
@@ -137,11 +132,5 @@ public sealed class WorkflowEmailService(AppDbContext db, ResetEmailOptions opti
         => options.AppBaseUrl.TrimEnd('/') + options.LetterPathTemplate.Replace("{id}", letterId.ToString());
 
     public static (string Subject, string Text, string Html) Render(string subject, string message, string link)
-    {
-        var safeMessage = WebUtility.HtmlEncode(message);
-        var safeLink = WebUtility.HtmlEncode(link);
-        var text = $"{message}\nTinjau surat: {link}";
-        var html = $"<p>{safeMessage}</p><p><a href=\"{safeLink}\">Tinjau surat</a></p>";
-        return (subject, text, html);
-    }
+        => new WorkflowEmailRenderer().RenderGeneric(subject, message, link);
 }
