@@ -1,5 +1,6 @@
-using System.Text.Json;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace SignIt.Modules.Templates.Services;
 
@@ -10,41 +11,60 @@ public sealed record LetterTemplateDto(string TypeId, string TemplateId, string 
 public sealed class TemplateCatalog(IHostEnvironment environment)
 {
     private static readonly string[] Types = ["peminjaman-ruangan", "peminjaman-barang", "proposal", "lpj"];
+    private readonly ConcurrentDictionary<string, (TemplateRenderLayout Layout, string AssetHash)> _layoutCache = new();
+    private IReadOnlyList<LetterTemplateDto>? _cachedTemplates;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
 
     public async Task<IReadOnlyList<LetterTemplateDto>> GetAllAsync(CancellationToken ct)
     {
-        var result = new List<LetterTemplateDto>();
-        foreach (var type in Types)
-        {
-            var fileName = $"{type}.json";
-            var path = ResolveTemplatePath(fileName)
-                ?? throw new FileNotFoundException($"Template schema '{fileName}' tidak ditemukan.");
+        if (_cachedTemplates != null) return _cachedTemplates;
 
-            await using var stream = File.OpenRead(path);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            var root = document.RootElement;
-            var fields = root.GetProperty("fields").EnumerateArray().Select(field =>
+        await _initLock.WaitAsync(ct);
+        try
+        {
+            if (_cachedTemplates != null) return _cachedTemplates;
+
+            var result = new List<LetterTemplateDto>();
+            foreach (var type in Types)
             {
-                var key = field.GetProperty("key").GetString()!;
-                var group = field.GetProperty("group").GetString()!;
-                var source = key.StartsWith("qr_", StringComparison.Ordinal) ? "signatureEvidence"
-                    : group == "tanda_tangan" ? "participant"
-                    : key is "nama_pembina_ormawa" or "nama_ketua_pelaksana" or "nama_penanggung_jawab" or "nama_pembina_minat_bakat" ? "participant"
-                    : key == "ruangan_kegiatan" ? "resource"
-                    : key == "nama_ormawa" ? "organization"
-                    : key is "nomor_surat" or "nama_kampus" ? "server" : "user";
-                return new TemplateField(key, field.GetProperty("label").GetString()!,
-                    field.GetProperty("type").GetString()!, field.GetProperty("required").GetBoolean(), group, source);
-            }).ToArray();
-            result.Add(new LetterTemplateDto(type, root.GetProperty("template_id").GetString()!,
-                root.GetProperty("name").GetString()!, root.GetProperty("version").GetString()!,
-                root.GetProperty("source_document").GetString()!, fields));
+                var fileName = $"{type}.json";
+                var path = ResolveTemplatePath(fileName)
+                    ?? throw new FileNotFoundException($"Template schema '{fileName}' tidak ditemukan.");
+
+                await using var stream = File.OpenRead(path);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                var root = document.RootElement;
+                var fields = root.GetProperty("fields").EnumerateArray().Select(field =>
+                {
+                    var key = field.GetProperty("key").GetString()!;
+                    var group = field.GetProperty("group").GetString()!;
+                    var source = key.StartsWith("qr_", StringComparison.Ordinal) ? "signatureEvidence"
+                        : group == "tanda_tangan" ? "participant"
+                        : key is "nama_pembina_ormawa" or "nama_ketua_pelaksana" or "nama_penanggung_jawab" or "nama_pembina_minat_bakat" ? "participant"
+                        : key == "ruangan_kegiatan" ? "resource"
+                        : key == "nama_ormawa" ? "organization"
+                        : key is "nomor_surat" or "nama_kampus" ? "server" : "user";
+                    return new TemplateField(key, field.GetProperty("label").GetString()!,
+                        field.GetProperty("type").GetString()!, field.GetProperty("required").GetBoolean(), group, source);
+                }).ToArray();
+                result.Add(new LetterTemplateDto(type, root.GetProperty("template_id").GetString()!,
+                    root.GetProperty("name").GetString()!, root.GetProperty("version").GetString()!,
+                    root.GetProperty("source_document").GetString()!, fields));
+            }
+            _cachedTemplates = result;
+            return _cachedTemplates;
         }
-        return result;
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<(TemplateRenderLayout Layout, string AssetHash)> GetRenderLayoutAsync(LetterTemplateDto template, CancellationToken ct)
     {
+        if (_layoutCache.TryGetValue(template.TypeId, out var cached))
+            return cached;
+
         string Resolve(string name)
         {
             if (Path.GetFileName(name) != name) throw new InvalidOperationException("Nama aset template tidak valid.");
@@ -58,7 +78,10 @@ public sealed class TemplateCatalog(IHostEnvironment environment)
         var source = await File.ReadAllBytesAsync(Resolve(template.SourceDocument), ct);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var bytes in new[] { schema, layoutBytes, source }) hash.AppendData(bytes);
-        return (layout, Convert.ToHexStringLower(hash.GetHashAndReset()));
+        var result = (layout, Convert.ToHexStringLower(hash.GetHashAndReset()));
+
+        _layoutCache[template.TypeId] = result;
+        return result;
     }
 
     private string? ResolveTemplatePath(string name)

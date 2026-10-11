@@ -82,15 +82,33 @@ public sealed class PdfSignatureCardDrawer : IPdfSignatureCardDrawer
 
     private static void DrawFitted(XGraphics gfx, string text, XFont font, XBrush brush, XRect bounds)
     {
-        var display = text;
-        while (display.Length > 0 && gfx.MeasureString(display, font).Width > bounds.Width)
-            display = display[..^1];
-        if (display != text)
+        if (string.IsNullOrEmpty(text) || gfx.MeasureString(text, font).Width <= bounds.Width)
         {
-            while (display.Length > 0 && gfx.MeasureString(display + "...", font).Width > bounds.Width)
-                display = display[..^1];
-            display += "...";
+            gfx.DrawString(text, font, brush, bounds, XStringFormats.TopCenter);
+            return;
         }
+
+        const string ellipsis = "...";
+        var low = 0;
+        var high = text.Length;
+        var bestLength = 0;
+
+        while (low <= high)
+        {
+            var mid = (low + high) / 2;
+            var candidate = text[..mid] + ellipsis;
+            if (gfx.MeasureString(candidate, font).Width <= bounds.Width)
+            {
+                bestLength = mid;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        var display = bestLength > 0 ? text[..bestLength] + ellipsis : ellipsis;
         gfx.DrawString(display, font, brush, bounds, XStringFormats.TopCenter);
     }
 }
