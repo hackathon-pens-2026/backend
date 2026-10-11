@@ -99,7 +99,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
             .Where(x => x.RevisionId == revision.Id)
             .OrderBy(x => x.Order).ThenBy(x => x.Id).ToListAsync(ct);
         var remainingTasks = allTasksBeforeAction
-            .Where(x => x.Id != currentTask.Id && !WorkflowTaskAccess.IsDone(x.Status)).ToList();
+            .Where(x => x.Id != currentTask.Id && !x.IsDone).ToList();
 
         // The rooms module owns the PostgreSQL exclusion constraint. This confirmation
         // participates in the same transaction before the last approval is accepted.
@@ -141,14 +141,8 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
                 "Success", idempotencyKey, now));
         }
 
-        var status = expectedActionType switch
-        {
-            WorkflowActionType.Sign => WorkflowTaskStatus.Signed,
-            WorkflowActionType.ApproveAndSign => WorkflowTaskStatus.Approved,
-            WorkflowActionType.Acknowledge => WorkflowTaskStatus.Acknowledged,
-            _ => throw new InvalidOperationException("Aksi workflow tidak dapat diselesaikan.")
-        };
-        currentTask.Complete(status, actorUserId, now, request.Comment);
+        currentTask.CompleteWithAction(expectedActionType, actorUserId, now, request.Comment);
+        var status = currentTask.Status;
         _db.AuditLogs.Add(AuditLog.Record(actorUserId, $"workflow.{status.ToString().ToLowerInvariant()}",
             "WorkflowTask", currentTask.Id, revision.Id, now, Guid.NewGuid().ToString("N"),
             $"Actor {actor.Id}; mandat {delegation?.Id}", ipAddress, userAgent));
@@ -158,7 +152,7 @@ public sealed class SignatureWorkflowService : ISignatureWorkflowService
         var allTasks = await _db.WorkflowTasks
             .Where(x => x.RevisionId == revision.Id)
             .OrderBy(x => x.Order).ThenBy(x => x.Id).ToListAsync(ct);
-        var next = allTasks.FirstOrDefault(x => !WorkflowTaskAccess.IsDone(x.Status));
+        var next = allTasks.FirstOrDefault(x => !x.IsDone);
         if (next?.Status == WorkflowTaskStatus.Pending)
         {
             next.Activate(now, now.AddDays(_workflow.SlaDays));

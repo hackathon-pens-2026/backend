@@ -39,12 +39,7 @@ public sealed class SignatureDocumentService(AppDbContext db, IStorageService st
         {
             var task = tasks.SingleOrDefault(x => x.ParticipantId == participant.Id);
             var evidence = task == null ? null : evidences.SingleOrDefault(x => x.TaskId == task.Id);
-            var completed = task?.ActionType switch
-            {
-                WorkflowActionType.Sign => task.Status == WorkflowTaskStatus.Signed,
-                WorkflowActionType.ApproveAndSign => task.Status == WorkflowTaskStatus.Approved,
-                _ => false
-            };
+            var completed = task?.IsSignedOrApproved == true;
             if (!completed || evidence == null)
             {
                 if (evidence != null || completed || (requireAll && participant.Required))

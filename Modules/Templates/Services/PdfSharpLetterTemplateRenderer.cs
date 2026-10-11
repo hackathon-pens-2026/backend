@@ -15,10 +15,12 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
     private static readonly XColor HeaderNavy = XColor.FromArgb(0x31, 0x4F, 0x7D);
     private static readonly XColor HeaderDark = XColor.FromArgb(0x36, 0x33, 0x34);
     private readonly Lazy<XImage?> headerLogo;
+    private readonly RenderBlockRendererRegistry blockRenderers;
 
-    public PdfSharpLetterTemplateRenderer(IHostEnvironment? environment = null)
+    public PdfSharpLetterTemplateRenderer(IHostEnvironment? environment = null, RenderBlockRendererRegistry? blockRenderers = null)
     {
         headerLogo = new Lazy<XImage?>(() => LoadHeaderLogo(environment), LazyThreadSafetyMode.ExecutionAndPublication);
+        this.blockRenderers = blockRenderers ?? new RenderBlockRendererRegistry();
     }
 
     public RenderedPreview Render(PreviewRenderInput input, CancellationToken ct)
@@ -54,15 +56,7 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
         foreach (var block in input.Layout.Blocks)
         {
             ct.ThrowIfCancellationRequested();
-            switch (block.Kind)
-            {
-                case "pageBreak": canvas.NewPage(); break;
-                case "heading": canvas.Heading(Expand(block.Text ?? "")); break;
-                case "paragraph": canvas.Paragraph(Expand(block.Text ?? "")); break;
-                case "right": canvas.Paragraph(Expand(block.Text ?? ""), alignment: "right"); break;
-                case "table": canvas.Table((block.Rows ?? []).Select(row => row.Select(Expand).ToArray()).ToArray()); break;
-                default: throw new InvalidOperationException("Jenis blok template tidak didukung.");
-            }
+            blockRenderers.Render(block, canvas, Expand);
         }
         var slots = canvas.SignaturePages();
         return new(canvas.Save(), slots);
@@ -100,7 +94,7 @@ public sealed class PdfSharpLetterTemplateRenderer : ILetterTemplateRenderer
         yield return Path.Combine(AppContext.BaseDirectory, "templates", "assets", "kop-pens-logo.png");
     }
 
-    private sealed class LayoutCanvas : IDisposable
+    private sealed class LayoutCanvas : ILayoutCanvas
     {
         private const double Margin = 48, Bottom = 780, Width = 499;
         private const double HeaderDividerY = 112;

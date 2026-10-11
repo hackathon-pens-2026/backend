@@ -14,16 +14,38 @@ using SignIt.Modules.Templates.Services;
 
 namespace SignIt.Modules.Chat.Services;
 
-public sealed class LetterChatOrchestrator(
-    AppDbContext db,
-    TemplateCatalog templates,
-    LettersService lettersService,
-    RoomReservationService roomReservationService,
-    ILlmClient llmClient,
-    TimeProvider clock,
-    ILogger<LetterChatOrchestrator> logger)
+public sealed class LetterChatOrchestrator
 {
+    private readonly AppDbContext db;
+    private readonly TemplateCatalog templates;
+    private readonly LettersService lettersService;
+    private readonly RoomReservationService roomReservationService;
+    private readonly ILlmClient llmClient;
+    private readonly TimeProvider clock;
+    private readonly ILogger<LetterChatOrchestrator> logger;
+    private readonly ChatTurnAdvisor advisor;
+
     private static readonly TimeSpan JakartaOffset = TimeSpan.FromHours(7);
+
+    public LetterChatOrchestrator(
+        AppDbContext db,
+        TemplateCatalog templates,
+        LettersService lettersService,
+        RoomReservationService roomReservationService,
+        ILlmClient llmClient,
+        TimeProvider clock,
+        ILogger<LetterChatOrchestrator> logger,
+        ChatTurnAdvisor? advisor = null)
+    {
+        this.db = db;
+        this.templates = templates;
+        this.lettersService = lettersService;
+        this.roomReservationService = roomReservationService;
+        this.llmClient = llmClient;
+        this.clock = clock;
+        this.logger = logger;
+        this.advisor = advisor ?? new ChatTurnAdvisor(templates);
+    }
 
     public async Task<ChatSessionDetailDto> CreateOrResumeSessionAsync(
         Guid actor,
@@ -64,8 +86,8 @@ public sealed class LetterChatOrchestrator(
         // 2. Jika tipe surat ditentukan secara eksplisit
         if (!string.IsNullOrWhiteSpace(request.TypeId))
         {
-            var normalizedType = NormalizeLetterType(request.TypeId);
-            var draftTitle = $"Draf {GetLetterTypeFriendlyName(normalizedType)}";
+            var normalizedType = LetterTypeResolver.Normalize(request.TypeId);
+            var draftTitle = $"Draf {LetterTypeResolver.GetFriendlyName(normalizedType)}";
             var initialFields = new Dictionary<string, string>();
 
             var draft = await lettersService.CreateAsync(actor, new SaveDraftRequest(normalizedType, draftTitle, initialFields), ct);
@@ -74,7 +96,7 @@ public sealed class LetterChatOrchestrator(
 
             var welcomeText = normalizedType == "peminjaman-ruangan"
                 ? "Baik, untuk Peminjaman Ruangan saya memerlukan data: nama kegiatan, jadwal (tanggal & jam), estimasi peserta, dan ruangan yang dituju."
-                : $"Baik, untuk {GetLetterTypeFriendlyName(normalizedType)}, silakan jelaskan tujuan dan rincian kegiatan yang akan diajukan.";
+                : $"Baik, untuk {LetterTypeResolver.GetFriendlyName(normalizedType)}, silakan jelaskan tujuan dan rincian kegiatan yang akan diajukan.";
 
             var welcomeMsg = ChatMessageRecord.Create(session.Id, "bot", welcomeText, null, null, now);
             db.ChatMessages.Add(welcomeMsg);
@@ -121,7 +143,7 @@ public sealed class LetterChatOrchestrator(
             fields = ParseFieldsJson(draftDto.DataJson);
         }
 
-        var (fieldSummary, suggestedWidget) = await AnalyzeFieldsAsync(session.TypeId, fields, ct);
+        var (fieldSummary, suggestedWidget) = await advisor.AnalyzeFieldsAsync(session.TypeId, fields, ct);
 
         return new ChatSessionDetailDto(
             session.Id,
@@ -172,23 +194,23 @@ public sealed class LetterChatOrchestrator(
                     currentFields[k] = v.Trim();
                 }
             }
-            SynchronizeFieldAliases(currentFields, session.TypeId);
+            ChatFieldSynchronizer.SynchronizeAliases(currentFields);
         }
 
         // 4. Deteksi pemilihan tipe surat jika sesi belum memiliki TypeId
         if (string.IsNullOrWhiteSpace(session.TypeId))
         {
-            var detectedType = DetectLetterTypeFromText(userText)
+            var detectedType = LetterTypeResolver.DetectFromText(userText)
                 ?? (request.DirectFieldUpdates != null && request.DirectFieldUpdates.TryGetValue("typeId", out var directType) ? directType : null);
 
             if (!string.IsNullOrWhiteSpace(detectedType))
             {
-                var normalized = NormalizeLetterType(detectedType);
+                var normalized = LetterTypeResolver.Normalize(detectedType);
                 session.SetTypeId(normalized, now);
 
                 if (!session.LetterRequestId.HasValue)
                 {
-                    var draftTitle = $"Draf {GetLetterTypeFriendlyName(normalized)}";
+                    var draftTitle = $"Draf {LetterTypeResolver.GetFriendlyName(normalized)}";
                     var allTmpls = await templates.GetAllAsync(ct);
                     var tmpl = allTmpls.SingleOrDefault(x => x.TypeId == normalized);
                     var allowed = tmpl?.Fields.Where(x => x.ValueSource is not ("server" or "signatureEvidence")).Select(x => x.Key).ToHashSet() ?? [];
@@ -243,7 +265,7 @@ public sealed class LetterChatOrchestrator(
                         }
                     }
 
-                    SynchronizeFieldAliases(currentFields, session.TypeId);
+                    ChatFieldSynchronizer.SynchronizeAliases(currentFields);
 
                     // Pengecekan tanggal dan waktu kegiatan
                     var startsAt = llmResult.DetectedStartsAt
@@ -320,7 +342,7 @@ public sealed class LetterChatOrchestrator(
         {
             var draftTitle = currentFields.GetValueOrDefault("nama_kegiatan")
                 ?? currentFields.GetValueOrDefault("perihal")
-                ?? $"Draf {GetLetterTypeFriendlyName(session.TypeId)}";
+                ?? $"Draf {LetterTypeResolver.GetFriendlyName(session.TypeId)}";
 
             draftDto = await lettersService.UpdateDraftAsync(
                 actor,
@@ -331,13 +353,13 @@ public sealed class LetterChatOrchestrator(
         }
 
         // 7. Analisis field yang masih kurang & tentukan widget rekomendasi deterministik
-        var (fieldSummary, calculatedWidget) = await AnalyzeFieldsAsync(session.TypeId, currentFields, ct);
+        var (fieldSummary, calculatedWidget) = await advisor.AnalyzeFieldsAsync(session.TypeId, currentFields, ct);
         suggestedWidget = calculatedWidget;
 
         // Jika bot belum memiliki kalimat balasan (misal dari direct action atau LLM tidak memberi balasan spesifik)
         if (string.IsNullOrEmpty(botResponseText))
         {
-            botResponseText = BuildDeterministicBotReply(suggestedWidget, fieldSummary, availability, currentFields);
+            botResponseText = advisor.BuildDeterministicBotReply(suggestedWidget, fieldSummary, availability, currentFields);
         }
 
         // 8. Ambil data kandidat pejabat jika widget adalah ketuaPicker atau pembinaPicker
@@ -385,108 +407,6 @@ public sealed class LetterChatOrchestrator(
             fallbackAvailable);
     }
 
-    private async Task<(FieldSummaryDto Summary, string? SuggestedWidget)> AnalyzeFieldsAsync(
-        string? typeId,
-        Dictionary<string, string> fields,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(typeId))
-        {
-            return (new FieldSummaryDto(0, 0, []), "typePills");
-        }
-
-        var allTemplates = await templates.GetAllAsync(ct);
-        var template = allTemplates.SingleOrDefault(x => x.TypeId == typeId);
-        if (template == null)
-        {
-            return (new FieldSummaryDto(0, 0, []), null);
-        }
-
-        var requiredFillable = template.Fields
-            .Where(f => f.Required && f.ValueSource is not ("server" or "signatureEvidence"))
-            .ToList();
-
-        var total = requiredFillable.Count;
-        var missingKeys = requiredFillable
-            .Where(f => !fields.ContainsKey(f.Key) || string.IsNullOrWhiteSpace(fields[f.Key]))
-            .Select(f => f.Key)
-            .ToList();
-
-        var filled = total - missingKeys.Count;
-        var summary = new FieldSummaryDto(total, filled, missingKeys);
-
-        if (missingKeys.Count == 0)
-        {
-            return (summary, "pdf");
-        }
-
-        // Tentukan widget berdasarkan field prioritas yang belum terisi
-        string? nextWidget = null;
-        if (missingKeys.Any(k => k.Contains("ruangan") || k.Contains("lokasi")))
-        {
-            nextWidget = "availability";
-        }
-        else if (missingKeys.Any(k => k.Contains("ketua") || k.Contains("pemohon_2")))
-        {
-            nextWidget = "ketuaPicker";
-        }
-        else if (missingKeys.Any(k => k.Contains("pembina") || k.Contains("dosen")))
-        {
-            nextWidget = "pembinaPicker";
-        }
-        else if (missingKeys.Any(k => k.Contains("rundown") || k.Contains("lampiran")))
-        {
-            nextWidget = "upload";
-        }
-
-        return (summary, nextWidget);
-    }
-
-    private static string BuildDeterministicBotReply(
-        string? widget,
-        FieldSummaryDto summary,
-        AvailabilityDto? availability,
-        Dictionary<string, string> fields)
-    {
-        if (widget == "pdf")
-        {
-            return "Semua field wajib sudah lengkap terisi! Tekan 'Generate Draf Surat' di panel kanan untuk memeriksa pratinjau dokumen.";
-        }
-
-        if (widget == "ketuaPicker")
-        {
-            var prefix = availability?.IsAvailable == true ? "Ruangan tersedia! " : string.Empty;
-            return $"{prefix}Silakan pilih Ketua Pelaksana yang terdaftar di sistem:";
-        }
-
-        if (widget == "pembinaPicker")
-        {
-            return "Selanjutnya, silakan pilih Dosen Pembina yang akan mengetahui permohonan surat ini:";
-        }
-
-        if (widget == "availability")
-        {
-            return "Silakan tentukan tempat (ruangan) dan jadwal waktu kegiatan peminjaman:";
-        }
-
-        if (widget == "upload")
-        {
-            return "Tinggal satu lampiran: silakan unggah file dokumen pendukung/rundown acara (PDF/DOCX).";
-        }
-
-        if (widget == "typePills")
-        {
-            return "Halo! Ingin membuat tipe surat apa hari ini?";
-        }
-
-        if (summary.MissingRequiredKeys.Count > 0)
-        {
-            return $"Data telah dicatat. Masih ada {summary.MissingRequiredKeys.Count} field wajib yang perlu dilengkapi: {string.Join(", ", summary.MissingRequiredKeys)}.";
-        }
-
-        return "Data draf berhasil diperbarui.";
-    }
-
     private async Task<IReadOnlyList<CandidatePersonDto>> GetSignerCandidatesAsync(
         string[] positionCodes,
         CancellationToken ct)
@@ -527,41 +447,6 @@ public sealed class LetterChatOrchestrator(
             q.Contains($"{r.FacilityName} {r.Code}".ToLowerInvariant()));
     }
 
-    private static string? DetectLetterTypeFromText(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        var lower = text.ToLowerInvariant();
-        if (lower.Contains("ruang") || lower.Contains("peminjaman ruangan") || lower.Contains("fasilitas"))
-            return "peminjaman-ruangan";
-        if (lower.Contains("barang") || lower.Contains("alat") || lower.Contains("inventaris"))
-            return "peminjaman-barang";
-        if (lower.Contains("proposal") || lower.Contains("kegiatan"))
-            return "proposal";
-        if (lower.Contains("lpj") || lower.Contains("pertanggungjawaban"))
-            return "lpj";
-        return null;
-    }
-
-    private static string NormalizeLetterType(string input) =>
-        input.Trim().ToLowerInvariant() switch
-        {
-            "peminjaman-ruangan" or "ruangan" or "peminjaman ruangan" or "peminjaman ruangan & fasilitas" => "peminjaman-ruangan",
-            "peminjaman-barang" or "barang" or "peminjaman barang" => "peminjaman-barang",
-            "proposal" => "proposal",
-            "lpj" => "lpj",
-            _ => input.Trim().ToLowerInvariant()
-        };
-
-    private static string GetLetterTypeFriendlyName(string? typeId) =>
-        typeId switch
-        {
-            "peminjaman-ruangan" => "Peminjaman Ruangan",
-            "peminjaman-barang" => "Peminjaman Barang",
-            "proposal" => "Proposal Kegiatan",
-            "lpj" => "Laporan Pertanggungjawaban (LPJ)",
-            _ => "Surat Baru"
-        };
-
     private static Dictionary<string, string> ParseFieldsJson(string json)
     {
         if (string.IsNullOrWhiteSpace(json)) return [];
@@ -579,52 +464,5 @@ public sealed class LetterChatOrchestrator(
     {
         if (string.IsNullOrWhiteSpace(val)) return null;
         return DateTimeOffset.TryParse(val, out var parsed) ? parsed : null;
-    }
-
-    private static void SynchronizeFieldAliases(Dictionary<string, string> fields, string? typeId)
-    {
-        // nama <-> nama_kegiatan
-        Sync(fields, "nama", "nama_kegiatan");
-        Sync(fields, "nama", "perihal");
-
-        // lokasi <-> ruangan_kegiatan / tempat_kegiatan
-        Sync(fields, "lokasi", "ruangan_kegiatan");
-        Sync(fields, "lokasi", "tempat_kegiatan");
-
-        // tanggal <-> hari_tanggal_kegiatan / tanggal_kegiatan
-        Sync(fields, "tanggal", "hari_tanggal_kegiatan");
-        Sync(fields, "tanggal", "tanggal_kegiatan");
-
-        // ketua <-> nama_ketua_pelaksana / nama_pemohon_2
-        Sync(fields, "ketua", "nama_ketua_pelaksana");
-        Sync(fields, "ketua", "nama_pemohon_2");
-
-        // pembina <-> nama_pembina_ormawa / nama_mengetahui_1
-        Sync(fields, "pembina", "nama_pembina_ormawa");
-        Sync(fields, "pembina", "nama_mengetahui_1");
-
-        // jenis <-> jenis_permohonan
-        Sync(fields, "jenis", "jenis_permohonan");
-
-        // rundown <-> lampiran
-        Sync(fields, "rundown", "lampiran");
-    }
-
-    private static void Sync(Dictionary<string, string> fields, string key1, string key2)
-    {
-        if (fields.TryGetValue(key1, out var val1) && !string.IsNullOrWhiteSpace(val1))
-        {
-            if (!fields.TryGetValue(key2, out var val2) || string.IsNullOrWhiteSpace(val2))
-            {
-                fields[key2] = val1;
-            }
-        }
-        else if (fields.TryGetValue(key2, out var val2) && !string.IsNullOrWhiteSpace(val2))
-        {
-            if (!fields.TryGetValue(key1, out var val1From2) || string.IsNullOrWhiteSpace(val1From2))
-            {
-                fields[key1] = val2;
-            }
-        }
     }
 }

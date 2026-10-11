@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using PdfSharp.Pdf.IO;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
 using SignIt.Infrastructure.Storage;
@@ -21,10 +20,18 @@ public sealed record SubmitLetterRequest(Guid ExpectedVersion, Guid ExpectedRevi
     Guid ReviewDocumentId, string ExpectedReviewHash, SignatureSlot[] Slots);
 public sealed record SubmissionDto(Guid LetterId, Guid RevisionId, string Number, LetterStatus Status);
 
-public sealed class LetterSubmissionService(AppDbContext db, RoutingService routing, TemplateCatalog templates,
-    IStorageService storage, TimeProvider clock, LetterPreviewService previews, WorkflowEmailService emails,
-    WorkflowOptions workflow)
+public sealed class LetterSubmissionService(
+    AppDbContext db,
+    RoutingService routing,
+    TemplateCatalog templates,
+    IStorageService storage,
+    TimeProvider clock,
+    LetterPreviewService previews,
+    WorkflowEmailService emails,
+    WorkflowOptions workflow,
+    ISignatureSlotValidator? slotValidator = null)
 {
+    private readonly ISignatureSlotValidator _slotValidator = slotValidator ?? new PdfSignatureSlotValidator();
     public async Task<SubmissionDto> SubmitAsync(Guid actor, Guid id, SubmitLetterRequest request, string key, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length > 80)
@@ -42,7 +49,7 @@ public sealed class LetterSubmissionService(AppDbContext db, RoutingService rout
             await transaction.CommitAsync(ct);
             return new(id, previous.RevisionId!.Value, letter.Number, letter.Status);
         }
-        if (letter.Status is not (LetterStatus.Draft or LetterStatus.NeedsRevision) || letter.RowVersion != request.ExpectedVersion || letter.CurrentRevisionId != request.ExpectedRevisionId
+        if (!letter.CanBeSubmitted || letter.RowVersion != request.ExpectedVersion || letter.CurrentRevisionId != request.ExpectedRevisionId
             || await db.WorkflowTasks.AnyAsync(x => x.RevisionId == request.ExpectedRevisionId, ct))
             throw Conflict("stale_draft", "Draft berubah atau sudah diajukan. Muat ulang surat.");
         var draft = await db.LetterRevisions.SingleAsync(x => x.Id == letter.CurrentRevisionId, ct);
@@ -69,7 +76,7 @@ public sealed class LetterSubmissionService(AppDbContext db, RoutingService rout
         var bytes = await storage.ReadBytesAsync(review.StorageKey, ct);
         if (bytes == null || Hash(bytes) != review.Sha256 || review.Sha256 != request.ExpectedReviewHash)
             throw Conflict("review_hash_mismatch", "Preview PDF berubah atau tidak tersedia.");
-        ValidateSlots(bytes, request.Slots, stages);
+        _slotValidator.ValidateSlots(bytes, request.Slots, stages);
         var now = clock.GetUtcNow();
         var snapshot = JsonSerializer.Serialize(new { Fields = renderedInput.Fields, request.OrganizationId, request.ResourceId,
             Stages = stages, Slots = serverSlots, ReviewHash = review.Sha256, renderedInput.TemplateAssetHash,
@@ -108,25 +115,6 @@ public sealed class LetterSubmissionService(AppDbContext db, RoutingService rout
         return new(id, revision.Id, letter.Number, letter.Status);
     }
 
-    private static void ValidateSlots(byte[] bytes, SignatureSlot[] slots, IReadOnlyList<RoutingStage> stages)
-    {
-        if (slots == null || slots.Length != stages.Count || slots.Select(x => x.PositionCode).Distinct().Count() != slots.Length
-            || stages.Any(x => !slots.Any(s => s.PositionCode == x.PositionCode))) throw Error("invalid_slots", "Sediakan satu slot untuk setiap tahap.");
-        using var stream = new MemoryStream(bytes);
-        using var pdf = PdfReader.Open(stream, PdfDocumentOpenMode.Import);
-        foreach (var slot in slots)
-        {
-            if (slot.PageIndex < 0 || slot.PageIndex >= pdf.PageCount || !double.IsFinite(slot.X) || !double.IsFinite(slot.Y)
-                || !double.IsFinite(slot.Width) || !double.IsFinite(slot.Height) || slot.X < 0 || slot.Y < 0 || slot.Width < 100 || slot.Height < 100)
-                throw Error("invalid_slot_bounds", "Slot QR tidak valid; ukuran minimal 100 × 100 point.");
-            var page = pdf.Pages[slot.PageIndex];
-            if (page.Rotate != 0 || slot.X + slot.Width > page.Width.Point || slot.Y + slot.Height > page.Height.Point)
-                throw Error("invalid_slot_bounds", "Slot melewati halaman atau halaman perlu dinormalisasi rotasinya.");
-            if (slots.Any(other => other != slot && other.PageIndex == slot.PageIndex && slot.X < other.X + other.Width
-                && slot.X + slot.Width > other.X && slot.Y < other.Y + other.Height && slot.Y + slot.Height > other.Y))
-                throw Error("overlapping_slots", "Slot tanda tangan bertumpuk.");
-        }
-    }
     private static string Hash(string value) => Hash(Encoding.UTF8.GetBytes(value));
     private static string Hash(byte[] value) => Convert.ToHexStringLower(SHA256.HashData(value));
     private static SignItDomainException Error(string code, string message) => new(DomainErrorKind.Validation, code, message);

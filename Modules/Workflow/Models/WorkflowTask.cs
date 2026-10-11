@@ -79,6 +79,21 @@ public sealed class WorkflowTask
         RowVersion = Guid.NewGuid();
     }
 
+    public static WorkflowTaskStatus MapActionToCompletionStatus(WorkflowActionType actionType) =>
+        actionType switch
+        {
+            WorkflowActionType.Sign => WorkflowTaskStatus.Signed,
+            WorkflowActionType.ApproveAndSign => WorkflowTaskStatus.Approved,
+            WorkflowActionType.Acknowledge => WorkflowTaskStatus.Acknowledged,
+            _ => throw new InvalidOperationException("Aksi workflow tidak dapat diselesaikan.")
+        };
+
+    public void CompleteWithAction(WorkflowActionType actionType, Guid actorUserId, DateTimeOffset now, string? comment = null)
+    {
+        var status = MapActionToCompletionStatus(actionType);
+        Complete(status, actorUserId, now, comment);
+    }
+
     public void Reject(Guid actorUserId, DateTimeOffset now, string comment)
     {
         if (Status != WorkflowTaskStatus.Active)
@@ -131,6 +146,10 @@ public sealed class WorkflowTask
         Status = WorkflowTaskStatus.Cancelled;
         RowVersion = Guid.NewGuid();
     }
+
+    public bool IsDone => Status is WorkflowTaskStatus.Signed or WorkflowTaskStatus.Approved or WorkflowTaskStatus.Acknowledged;
+    public bool IsSignedOrApproved => Status is WorkflowTaskStatus.Signed or WorkflowTaskStatus.Approved;
+    public bool CanBeActedUpon => Status is WorkflowTaskStatus.Active;
 
     public void Touch() => RowVersion = Guid.NewGuid();
 }

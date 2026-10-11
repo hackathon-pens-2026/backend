@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<AuthProvisioner>();
         services.AddSingleton<SignIt.Modules.Templates.Services.TemplateCatalog>();
         services.AddScoped<SignIt.Modules.Letters.Services.LettersService>();
+        services.AddSingleton<SignIt.Modules.Letters.Services.ISignatureSlotValidator, SignIt.Modules.Letters.Services.PdfSignatureSlotValidator>();
         services.AddScoped<SignIt.Modules.Letters.Services.LetterSubmissionService>();
         services.AddScoped<SignIt.Modules.Routing.Services.RoutingService>();
         services.AddOptions<SignIt.Modules.Workflow.Services.WorkflowOptions>().Bind(configuration.GetSection("Workflow"))
@@ -73,6 +74,7 @@ public static class DependencyInjection
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SignIt.Modules.Letters.Services.PreviewWorkerOptions>>().Value);
         services.AddHostedService<SignIt.Modules.Letters.Services.LetterPreviewWorker>();
         services.AddScoped<SignIt.Modules.Rooms.Services.RoomReservationService>();
+        services.AddSingleton<ChatTurnAdvisor>();
         services.AddScoped<LetterChatOrchestrator>();
 
         services.AddOptions<LlmOptions>().Bind(configuration.GetSection("Llm"))
@@ -94,6 +96,7 @@ public static class DependencyInjection
         services.AddScoped<ISignatureWorkflowService, SignatureWorkflowService>();
         services.AddScoped<SignatureDocumentService>();
         services.AddHostedService<SignatureFinalizationWorker>();
+        services.AddSingleton<IPdfDocumentInspector, PdfDocumentInspector>();
         services.AddScoped<IPublicVerificationService, PublicVerificationService>();
 
         services.AddOptions<ResetEmailOptions>().Bind(configuration.GetSection("Email"))

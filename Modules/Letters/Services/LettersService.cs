@@ -153,7 +153,7 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
             return replay with { DataJson = saved.DataJson };
         }
         var old = await CheckExpectedAsync(letter, request.ExpectedVersion, request.ExpectedRevisionId, request.ExpectedContentHash, ct);
-        if (letter.Status is not (LetterStatus.Draft or LetterStatus.NeedsRevision))
+        if (!letter.CanBeEdited)
             throw WorkflowTaskAccess.Error(DomainErrorKind.Conflict, "letter_not_editable", "Isi surat berjalan/final tidak dapat diubah.");
         if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 300)
             throw WorkflowTaskAccess.Error(DomainErrorKind.Validation, "invalid_title", "Judul wajib, maksimal 300 karakter.");
@@ -190,7 +190,7 @@ public sealed class LettersService(AppDbContext db, TemplateCatalog templates, T
         var replay = await WorkflowIdempotency.ReplayAsync<CancelLetterDto>(db, id, operation, correlation, request, ct);
         if (replay != null) { await transaction.CommitAsync(ct); return replay; }
         await CheckExpectedAsync(letter, request.ExpectedVersion, request.ExpectedRevisionId, request.ExpectedContentHash, ct);
-        if (letter.Status is not (LetterStatus.Draft or LetterStatus.InProgress or LetterStatus.NeedsRevision))
+        if (!letter.CanBeCancelled)
             throw WorkflowTaskAccess.Error(DomainErrorKind.Conflict, "letter_not_cancellable", "Surat final/terminal tidak dapat dibatalkan melalui aksi ini.");
         letter.Cancel();
         var tasks = await db.WorkflowTasks.Where(x => x.RevisionId == letter.CurrentRevisionId).ToListAsync(ct);

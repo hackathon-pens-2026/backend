@@ -25,7 +25,7 @@ public sealed class LetterPreviewService(AppDbContext db, RoutingService routing
         var letter = await db.LetterRequests.FromSqlInterpolated($"SELECT * FROM letter_requests WHERE \"Id\"={id} AND \"SubmittedByUserId\"={actor} FOR UPDATE").SingleOrDefaultAsync(ct)
             ?? throw Error(DomainErrorKind.NotFound, "letter_not_found", "Surat tidak ditemukan.");
         await db.Entry(letter).ReloadAsync(ct);
-        if (letter.Status is not (LetterStatus.Draft or LetterStatus.NeedsRevision) || letter.RowVersion != request.ExpectedVersion || letter.CurrentRevisionId != request.ExpectedRevisionId
+        if (!letter.CanBeEdited || letter.RowVersion != request.ExpectedVersion || letter.CurrentRevisionId != request.ExpectedRevisionId
             || await db.WorkflowTasks.AnyAsync(x => x.RevisionId == request.ExpectedRevisionId, ct))
             throw Error(DomainErrorKind.Conflict, "stale_draft", "Draft berubah atau telah diajukan.");
         var revision = await db.LetterRevisions.SingleAsync(x => x.Id == request.ExpectedRevisionId, ct);

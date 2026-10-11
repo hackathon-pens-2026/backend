@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using SignIt.Infrastructure.Errors;
 using SignIt.Infrastructure.Persistence;
@@ -9,12 +8,13 @@ namespace SignIt.Modules.Signatures.Services;
 
 public sealed class PublicVerificationService : IPublicVerificationService
 {
-    private const long MaxUploadSizeBytes = 10 * 1024 * 1024; // 10 MiB limit
     private readonly AppDbContext _db;
+    private readonly IPdfDocumentInspector _inspector;
 
-    public PublicVerificationService(AppDbContext db)
+    public PublicVerificationService(AppDbContext db, IPdfDocumentInspector? inspector = null)
     {
         _db = db;
+        _inspector = inspector ?? new PdfDocumentInspector();
     }
 
     public async Task<PublicVerificationDto> VerifyByCodeAsync(string code, CancellationToken ct)
@@ -76,24 +76,11 @@ public sealed class PublicVerificationService : IPublicVerificationService
 
     public async Task<VerifyUploadResultDto> VerifyByUploadAsync(Stream fileStream, long fileSize, CancellationToken ct)
     {
-        if (fileSize <= 0 || fileSize > MaxUploadSizeBytes)
-            throw new SignItDomainException(DomainErrorKind.Validation, "file_size_exceeded",
-                "Ukuran file unggahan maksimal 10 MiB.");
-
-        using var memory = new MemoryStream();
-        await fileStream.CopyToAsync(memory, ct);
-        var bytes = memory.ToArray();
-
-        // Magic bytes verification (%PDF)
-        if (bytes.Length < 4 || bytes[0] != 0x25 || bytes[1] != 0x50 || bytes[2] != 0x44 || bytes[3] != 0x46)
-            throw new SignItDomainException(DomainErrorKind.Validation, "invalid_pdf_format",
-                "File yang diunggah bukan merupakan dokumen PDF yang sah.");
-
-        var computedHash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        var inspection = await _inspector.InspectPdfAsync(fileStream, fileSize, ct);
 
         var record = await _db.VerificationRecords
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.FinalHash == computedHash, ct);
+            .FirstOrDefaultAsync(x => x.FinalHash == inspection.Sha256Hash, ct);
 
         if (record == null)
         {
